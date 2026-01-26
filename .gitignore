@@ -1,0 +1,27 @@
+# MacOS
+.DS_Store
+._*
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# Node modules (if using any JS tooling)
+node_modules/
+
+# Python virtual environments (if using any Python tooling)
+venv/
+__pycache__/
+
+# Sync configuration (contains local paths)
+sync-config.local.sh

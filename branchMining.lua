@@ -11,7 +11,9 @@ local pos = {x = 0, y = 0, z = 0, facing = 0}
 local config = {
     branch_length = 30,
     num_branches = 20,
-    spacing = 3
+    spacing = 3,
+    current_y = 64,
+    target_y = -59
 }
 
 local stats = {
@@ -144,6 +146,39 @@ local function digDown()
 end
 
 -- ============================================================================
+-- DEPTH NAVIGATION
+-- ============================================================================
+
+local function navigateToDepth()
+    local current_y = config.current_y
+    local target_y = config.target_y
+    local blocks_to_dig = current_y - target_y
+
+    if blocks_to_dig == 0 then
+        print("Already at target depth!")
+        return
+    elseif blocks_to_dig < 0 then
+        print(string.format("Need to go UP %d blocks...", math.abs(blocks_to_dig)))
+        for i = 1, math.abs(blocks_to_dig) do
+            digUp()
+            up()
+        end
+    else
+        print(string.format("Digging down %d blocks to reach Y=%d...", blocks_to_dig, target_y))
+        for i = 1, blocks_to_dig do
+            digDown()
+            down()
+            if i % 10 == 0 then
+                print(string.format("  Progress: %d/%d blocks", i, blocks_to_dig))
+            end
+        end
+    end
+
+    print(string.format("Reached target depth! Current Y: %d", target_y))
+    print("")
+end
+
+-- ============================================================================
 -- MINING FUNCTIONS
 -- ============================================================================
 
@@ -175,6 +210,9 @@ end
 -- ============================================================================
 
 local function executeMining()
+    -- First, navigate to target depth
+    navigateToDepth()
+
     print("Starting branch mining operation...")
     print(string.format("Position: x=%d, y=%d, z=%d, facing=%d", pos.x, pos.y, pos.z, pos.facing))
     print("")
@@ -230,12 +268,23 @@ local function getConfiguration()
     print("=== Branch Mining Configuration ===")
     print("")
 
+    -- Depth configuration
+    print("-- Depth Settings --")
+    config.current_y = getUserInput("Current Y-level", 64)
+    config.target_y = getUserInput("Target Y-level (recommended: -59 for diamonds)", -59)
+    print("")
+
+    -- Mining pattern configuration
+    print("-- Mining Pattern --")
     config.branch_length = getUserInput("Branch length", 30)
     config.num_branches = getUserInput("Number of branches", 20)
     config.spacing = getUserInput("Spacing between branches", 3)
 
     print("")
     print("Configuration:")
+    print("  Current Y-level: " .. config.current_y)
+    print("  Target Y-level: " .. config.target_y)
+    print("  Blocks to dig: " .. (config.current_y - config.target_y))
     print("  Branch length: " .. config.branch_length)
     print("  Number of branches: " .. config.num_branches)
     print("  Spacing: " .. config.spacing)

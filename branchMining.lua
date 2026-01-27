@@ -275,19 +275,22 @@ end
 
 local function mineBranch(length)
     -- Mine a 2-high branch tunnel
+    local actualLength = length
     for i = 1, length do
         if not mineForward() then
-            print("Branch mining stopped at block " .. i)
-            -- Still need to return, so break here
-            length = i - 1
+            print("  Branch mining stopped at block " .. i)
+            -- Still need to return, so update actual length
+            actualLength = i - 1
             break
         end
     end
 
+    -- Turn around to face back toward main tunnel
+    turnRight()
+    turnRight()
+
     -- Return to main tunnel
-    turnRight()
-    turnRight()
-    for i = 1, length do
+    for i = 1, actualLength do
         if not forward() then
             -- Try to dig through if blocked
             digForward()
@@ -297,8 +300,9 @@ local function mineBranch(length)
             end
         end
     end
-    turnRight()
-    turnRight()
+
+    -- NOTE: We exit facing INTO the branch (opposite of entry direction)
+    -- The caller (executeMining) handles turning back to face main tunnel
     return true
 end
 
@@ -338,7 +342,11 @@ local function executeMining()
     local side = 0  -- 0 for left, 1 for right
 
     for branch = 1, config.num_branches do
+        local sideStr = (side == 0) and "LEFT" or "RIGHT"
+
         -- Mine forward in main tunnel by spacing amount
+        print(string.format("[Branch %d/%d] Mining main tunnel (%d blocks)...",
+            branch, config.num_branches, config.spacing))
         for step = 1, config.spacing do
             if not mineForward() then
                 print("ERROR: Mining stopped in main tunnel")
@@ -347,6 +355,8 @@ local function executeMining()
         end
 
         -- Turn to side branch direction (alternate left/right)
+        print(string.format("[Branch %d/%d] Turning %s, mining branch (%d blocks)...",
+            branch, config.num_branches, sideStr, config.branch_length))
         if side == 0 then
             turnLeft()
         else
@@ -359,13 +369,22 @@ local function executeMining()
             return false
         end
 
+        -- Turn back to face main tunnel direction
+        -- (opposite of the turn we did to enter the branch)
+        if side == 0 then
+            turnRight()  -- We turned left to enter, turn right to face main tunnel
+        else
+            turnLeft()   -- We turned right to enter, turn left to face main tunnel
+        end
+
         -- Update stats and display progress
         stats.branches_completed = stats.branches_completed + 1
         local currentFuel = turtle.getFuelLevel()
         local fuelStr = (currentFuel == "unlimited") and "unlimited" or tostring(currentFuel)
-        print(string.format("Branch %d/%d | Mined: %d | Fuel: %s | Pos: %d,%d,%d",
-            stats.branches_completed, config.num_branches, stats.blocks_mined,
+        print(string.format("[Branch %d/%d %s] DONE | Mined: %d | Fuel: %s | Pos: %d,%d,%d",
+            branch, config.num_branches, sideStr, stats.blocks_mined,
             fuelStr, pos.x, pos.y, pos.z))
+        print("")
 
         -- Alternate side for next branch
         side = 1 - side

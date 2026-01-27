@@ -200,8 +200,40 @@ wget https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/bran
 - [x] Safe dig function (dig until stable - handles gravel/sand)
 - [x] Basic branch mining pattern (main tunnel + side branches)
 - [x] Interactive prompts for configuration
-- [ ] **FIX: Add fuel checking before movement**
-- [ ] **FIX: Add auto-refuel from inventory**
+- [x] **FIXED: Add fuel checking before movement**
+- [x] **FIXED: Add auto-refuel from inventory**
+- [x] **FIXED: Turn back to main tunnel after branch (see bug below)**
+- [x] Better status output (shows LEFT/RIGHT, branch number)
+
+---
+
+## Bugs Found & Fixed
+
+### BUG: Turtle not turning back to main tunnel after branch
+**Found:** After `mineBranch()` returned, the turtle was facing INTO the branch instead of along the main tunnel.
+
+**Cause:** Original code had 4x `turnRight()` in `mineBranch()`:
+```lua
+-- Original (wrong)
+turnRight()  -- 1. Turn around (180°)
+turnRight()  -- 2.
+-- walk back --
+turnRight()  -- 3. Turn another 180° (total 360° = same direction)
+turnRight()  -- 4.
+```
+This made the turtle face the branch direction again, not the main tunnel.
+
+**Fix:**
+1. `mineBranch()` now only does 2x turnRight to turn around and walk back
+2. `executeMining()` now turns back to main tunnel direction after each branch:
+```lua
+-- After mineBranch returns, turtle faces opposite of entry direction
+if side == 0 then
+    turnRight()  -- Entered via turnLeft, so turnRight to face main tunnel
+else
+    turnLeft()   -- Entered via turnRight, so turnLeft to face main tunnel
+end
+```
 
 ### Phase 2: Fuel & Inventory Management
 - [ ] Fuel level monitoring

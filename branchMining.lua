@@ -11,13 +11,84 @@ local pos = {x = 0, y = 0, z = 0, facing = 0}
 local config = {
     branch_length = 30,
     num_branches = 20,
-    spacing = 3
+    spacing = 3,
+    fuel_reserve = 100  -- Minimum fuel to keep for emergencies
 }
 
 local stats = {
     blocks_mined = 0,
-    branches_completed = 0
+    branches_completed = 0,
+    fuel_used = 0
 }
+
+-- ============================================================================
+-- FUEL MANAGEMENT (CRITICAL!)
+-- ============================================================================
+
+local function getFuelNeeded()
+    -- Estimate fuel needed for the entire operation
+    -- Each branch: (spacing + branch_length * 2) moves
+    -- Total: num_branches * moves_per_branch + return trip
+    local moves_per_branch = config.spacing + (config.branch_length * 2)
+    local total_moves = config.num_branches * moves_per_branch
+    local return_trip = pos.x + pos.y + pos.z + 50  -- Extra buffer
+    return total_moves + return_trip
+end
+
+local function refuel(needed)
+    local level = turtle.getFuelLevel()
+
+    -- Check if fuel is unlimited (creative mode or config)
+    if level == "unlimited" then
+        return true
+    end
+
+    -- Already have enough fuel
+    if level >= needed then
+        return true
+    end
+
+    -- Try to refuel from inventory
+    local originalSlot = turtle.getSelectedSlot()
+
+    for slot = 1, 16 do
+        if turtle.getItemCount(slot) > 0 then
+            turtle.select(slot)
+            -- Test if this item is fuel (refuel(0) doesn't consume)
+            if turtle.refuel(0) then
+                -- Consume fuel until we have enough
+                while turtle.getFuelLevel() < needed and turtle.getItemCount(slot) > 0 do
+                    turtle.refuel(1)
+                end
+                if turtle.getFuelLevel() >= needed then
+                    turtle.select(originalSlot)
+                    return true
+                end
+            end
+        end
+    end
+
+    turtle.select(originalSlot)
+    return turtle.getFuelLevel() >= needed
+end
+
+local function checkFuel()
+    local level = turtle.getFuelLevel()
+    if level == "unlimited" then
+        return true
+    end
+
+    -- Need at least 1 fuel to move
+    if level < 1 then
+        if not refuel(config.fuel_reserve) then
+            print("WARNING: Out of fuel!")
+            print("Current fuel: " .. level)
+            print("Please add fuel items to inventory")
+            return false
+        end
+    end
+    return true
+end
 
 -- ============================================================================
 -- POSITION TRACKING
@@ -38,6 +109,11 @@ end
 -- ============================================================================
 
 local function forward()
+    -- Check fuel before attempting to move
+    if not checkFuel() then
+        return false, "Out of fuel"
+    end
+
     if turtle.forward() then
         -- Update position based on facing direction
         if pos.facing == 0 then
@@ -49,12 +125,18 @@ local function forward()
         elseif pos.facing == 3 then
             updatePosition(-1, 0, 0)  -- West
         end
+        stats.fuel_used = stats.fuel_used + 1
         return true
     end
-    return false
+    return false, "Movement blocked"
 end
 
 local function back()
+    -- Check fuel before attempting to move
+    if not checkFuel() then
+        return false, "Out of fuel"
+    end
+
     if turtle.back() then
         -- Update position (opposite of forward)
         if pos.facing == 0 then
@@ -66,25 +148,38 @@ local function back()
         elseif pos.facing == 3 then
             updatePosition(1, 0, 0)   -- Moving back from west
         end
+        stats.fuel_used = stats.fuel_used + 1
         return true
     end
-    return false
+    return false, "Movement blocked"
 end
 
 local function up()
+    -- Check fuel before attempting to move
+    if not checkFuel() then
+        return false, "Out of fuel"
+    end
+
     if turtle.up() then
         updatePosition(0, 1, 0)
+        stats.fuel_used = stats.fuel_used + 1
         return true
     end
-    return false
+    return false, "Movement blocked"
 end
 
 local function down()
+    -- Check fuel before attempting to move
+    if not checkFuel() then
+        return false, "Out of fuel"
+    end
+
     if turtle.down() then
         updatePosition(0, -1, 0)
+        stats.fuel_used = stats.fuel_used + 1
         return true
     end
-    return false
+    return false, "Movement blocked"
 end
 
 local function turnLeft()
@@ -151,23 +246,60 @@ local function mineForward()
     -- Dig 2-high tunnel (front and up)
     digForward()
     digUp()
-    forward()
+
+    -- Try to move forward, handle obstacles
+    local attempts = 0
+    while not forward() do
+        attempts = attempts + 1
+        if attempts > 10 then
+            print("ERROR: Cannot move forward after 10 attempts")
+            return false
+        end
+
+        -- Check if blocked by a block
+        if turtle.detect() then
+            if not turtle.dig() then
+                print("ERROR: Cannot dig block (bedrock?)")
+                return false
+            end
+        -- Check if blocked by entity
+        elseif turtle.attack() then
+            -- Attacked something, try again
+        else
+            -- Unknown blockage, wait and retry
+            sleep(0.5)
+        end
+    end
+    return true
 end
 
 local function mineBranch(length)
     -- Mine a 2-high branch tunnel
     for i = 1, length do
-        mineForward()
+        if not mineForward() then
+            print("Branch mining stopped at block " .. i)
+            -- Still need to return, so break here
+            length = i - 1
+            break
+        end
     end
 
     -- Return to main tunnel
     turnRight()
     turnRight()
     for i = 1, length do
-        forward()
+        if not forward() then
+            -- Try to dig through if blocked
+            digForward()
+            if not forward() then
+                print("ERROR: Cannot return from branch!")
+                return false
+            end
+        end
     end
     turnRight()
     turnRight()
+    return true
 end
 
 -- ============================================================================
@@ -175,6 +307,30 @@ end
 -- ============================================================================
 
 local function executeMining()
+    -- Check initial fuel
+    local fuelLevel = turtle.getFuelLevel()
+    local fuelNeeded = getFuelNeeded()
+
+    print("=== Fuel Check ===")
+    if fuelLevel == "unlimited" then
+        print("Fuel: unlimited (creative mode)")
+    else
+        print(string.format("Current fuel: %d", fuelLevel))
+        print(string.format("Estimated needed: %d", fuelNeeded))
+
+        if fuelLevel < fuelNeeded then
+            print("")
+            print("WARNING: Low fuel! Attempting to refuel...")
+            if not refuel(fuelNeeded) then
+                print("Could not get enough fuel.")
+                print("Continuing anyway, will try to refuel during operation.")
+            else
+                print(string.format("Refueled! New level: %d", turtle.getFuelLevel()))
+            end
+        end
+    end
+    print("")
+
     print("Starting branch mining operation...")
     print(string.format("Position: x=%d, y=%d, z=%d, facing=%d", pos.x, pos.y, pos.z, pos.facing))
     print("")
@@ -184,7 +340,10 @@ local function executeMining()
     for branch = 1, config.num_branches do
         -- Mine forward in main tunnel by spacing amount
         for step = 1, config.spacing do
-            mineForward()
+            if not mineForward() then
+                print("ERROR: Mining stopped in main tunnel")
+                return false
+            end
         end
 
         -- Turn to side branch direction (alternate left/right)
@@ -195,22 +354,30 @@ local function executeMining()
         end
 
         -- Mine the branch
-        mineBranch(config.branch_length)
+        if not mineBranch(config.branch_length) then
+            print("ERROR: Branch mining failed")
+            return false
+        end
 
         -- Update stats and display progress
         stats.branches_completed = stats.branches_completed + 1
-        print(string.format("Branch %d/%d completed | Blocks mined: %d | Position: x=%d, y=%d, z=%d",
-            stats.branches_completed, config.num_branches, stats.blocks_mined, pos.x, pos.y, pos.z))
+        local currentFuel = turtle.getFuelLevel()
+        local fuelStr = (currentFuel == "unlimited") and "unlimited" or tostring(currentFuel)
+        print(string.format("Branch %d/%d | Mined: %d | Fuel: %s | Pos: %d,%d,%d",
+            stats.branches_completed, config.num_branches, stats.blocks_mined,
+            fuelStr, pos.x, pos.y, pos.z))
 
         -- Alternate side for next branch
         side = 1 - side
     end
 
     print("")
-    print("Mining operation complete!")
+    print("=== Mining Complete! ===")
     print(string.format("Total branches: %d", stats.branches_completed))
     print(string.format("Total blocks mined: %d", stats.blocks_mined))
+    print(string.format("Fuel used: %d", stats.fuel_used))
     print(string.format("Final position: x=%d, y=%d, z=%d", pos.x, pos.y, pos.z))
+    return true
 end
 
 -- ============================================================================

@@ -1,5 +1,181 @@
 # CC:Tweaked Development Notes
 
+## Turtle API Reference
+
+### Fuel System (CRITICAL!)
+Turtles need fuel to move. Without fuel, movement functions return `false`.
+
+```lua
+turtle.getFuelLevel()      -- Returns current fuel (number) or "unlimited"
+turtle.getFuelLimit()      -- Returns max capacity (normal: 20,000, advanced: 100,000)
+turtle.refuel([quantity])  -- Consume items from selected slot as fuel
+turtle.refuel(0)           -- Test if selected item is fuel (doesn't consume)
+```
+
+**Fuel values (approximate):**
+- Coal/Charcoal: 80 fuel
+- Coal Block: 800 fuel
+- Lava Bucket: 1000 fuel
+- Blaze Rod: 120 fuel
+- Wood/Planks: 15 fuel
+
+### Movement Functions
+All return `boolean, string?` - success and optional error message.
+
+```lua
+turtle.forward()    -- Move forward (costs 1 fuel)
+turtle.back()       -- Move backward (costs 1 fuel)
+turtle.up()         -- Move up (costs 1 fuel)
+turtle.down()       -- Move down (costs 1 fuel)
+turtle.turnLeft()   -- Turn left (FREE - no fuel cost)
+turtle.turnRight()  -- Turn right (FREE - no fuel cost)
+```
+
+### Digging Functions
+```lua
+turtle.dig([side])      -- Dig block in front
+turtle.digUp([side])    -- Dig block above
+turtle.digDown([side])  -- Dig block below
+-- side: optional "left" or "right" to use specific tool
+```
+
+### Block Detection
+```lua
+turtle.detect()       -- Returns true if solid block in front
+turtle.detectUp()     -- Returns true if solid block above
+turtle.detectDown()   -- Returns true if solid block below
+```
+
+### Block Inspection (returns block info)
+```lua
+turtle.inspect()      -- Returns hasBlock, blockInfo table
+turtle.inspectUp()
+turtle.inspectDown()
+-- blockInfo: { name = "minecraft:stone", state = {...}, tags = {...} }
+```
+
+### Inventory Management
+```lua
+turtle.select(slot)           -- Select slot 1-16
+turtle.getSelectedSlot()      -- Get current slot number
+turtle.getItemCount([slot])   -- Count items in slot (default: selected)
+turtle.getItemSpace([slot])   -- Space remaining in slot
+turtle.getItemDetail([slot])  -- Get item info { name, count }
+turtle.transferTo(slot, [count])  -- Move items to another slot
+turtle.compareTo(slot)        -- Compare selected to another slot
+```
+
+### Interaction Functions
+```lua
+turtle.place()        -- Place block from selected slot
+turtle.placeUp()
+turtle.placeDown()
+
+turtle.drop([count])      -- Drop items into inventory/world in front
+turtle.dropUp([count])
+turtle.dropDown([count])
+
+turtle.suck([count])      -- Pick up items from inventory/world
+turtle.suckUp([count])
+turtle.suckDown([count])
+
+turtle.attack([side])     -- Attack entity in front
+turtle.attackUp([side])
+turtle.attackDown([side])
+```
+
+### Equipment
+```lua
+turtle.equipLeft()        -- Equip item from selected slot to left
+turtle.equipRight()       -- Equip item from selected slot to right
+turtle.getEquippedLeft()  -- Get info about left upgrade
+turtle.getEquippedRight() -- Get info about right upgrade
+```
+
+### Events
+```lua
+os.pullEvent("turtle_inventory")  -- Fired when inventory changes
+```
+
+---
+
+## Common Patterns
+
+### Safe Movement with Fuel Check
+```lua
+local function refuel(needed)
+    local level = turtle.getFuelLevel()
+    if level == "unlimited" then return true end
+    if level >= needed then return true end
+
+    -- Try to refuel from inventory
+    for slot = 1, 16 do
+        if turtle.getItemCount(slot) > 0 then
+            turtle.select(slot)
+            if turtle.refuel(0) then  -- Test if fuel
+                while turtle.getFuelLevel() < needed and turtle.getItemCount(slot) > 0 do
+                    turtle.refuel(1)
+                end
+                if turtle.getFuelLevel() >= needed then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function safeForward()
+    if not refuel(1) then
+        print("Out of fuel!")
+        return false
+    end
+    while not turtle.forward() do
+        if turtle.detect() then
+            if not turtle.dig() then
+                return false  -- Bedrock or protected
+            end
+        elseif turtle.attack() then
+            -- Attacked entity blocking path
+        else
+            sleep(0.5)
+        end
+    end
+    return true
+end
+```
+
+### Handling Gravel/Sand
+```lua
+local function digForward()
+    while turtle.detect() do
+        if not turtle.dig() then
+            return false  -- Can't dig (bedrock)
+        end
+        sleep(0.5)  -- Wait for falling blocks
+    end
+    return true
+end
+```
+
+### Ore Detection
+```lua
+local function isOre(name)
+    return name:find("_ore$") ~= nil
+end
+
+local function checkForOres()
+    local hasBlock, data = turtle.inspect()
+    if hasBlock and isOre(data.name) then
+        print("Found ore: " .. data.name)
+        return true
+    end
+    return false
+end
+```
+
+---
+
 ## CI/CD: GitHub + wget
 
 ### Push to GitHub
@@ -16,123 +192,16 @@ wget https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/bran
 
 ---
 
-## Branch Mining Program Features
-
-### Core Features
-- **Branch mining pattern**: Main 2x2 tunnel with 2x1 branches every 3 blocks
-- **Auto torch placement**: Place torches every 8 blocks to prevent mob spawns
-- **Fuel management**: Return to start when fuel is low, refuel, and resume
-- **Inventory management**: Return to start when inventory is full, dump to chest, and resume
-- **Resume capability**: Save progress and resume after refuel/dump
-
-### Safety Features
-- **Gravel/sand detection**: Detect and clear falling blocks (keep mining until stable)
-- **Liquid detection**: Detect water/lava and seal with cobblestone blocks
-  - Turtles are immune to lava damage
-  - Place blocks to prevent liquids from flooding the mine
-- **Bedrock detection**: Stop when hitting bedrock
-
-### Advanced Features
-- **Configurable parameters**:
-  - Branch length
-  - Branch spacing
-  - Mining depth/level
-  - Number of branches
-- **Progress tracking**: Display blocks mined, fuel used, time elapsed
-- **Ore vein mining**:
-  - Detect ores using `turtle.inspect()`
-  - When ore found, recursively mine entire vein in all 6 directions
-  - Save position before vein mining
-  - Return to exact position after vein is complete
-  - Track visited blocks to avoid infinite loops
-- **Ore tracking**: Count and report valuable ores mined by type
-
-### Configuration
-
-**Interactive Prompts** (asked when you run the program):
-- Branch length: How long each branch should be
-- Number of branches: How many branches to mine
-- Branch spacing: Blocks between each branch (recommended: 3)
-- Target Y-level: Mining depth coordinate (recommended: -59 for diamonds)
-
-**Config File** (`mining_config.txt` - edit manually):
-```lua
-{
-  fuel_reserve = 500,           -- Min fuel before returning to refuel
-  torch_interval = 8,           -- Blocks between torch placement
-  return_when_full = true,      -- Auto-return when inventory full
-  chest_slot = 1,               -- Which slot has the ender chest
-  torch_slot = 2,               -- Which slot has torches
-  cobble_slot = 3,              -- Which slot has cobblestone (for sealing liquids)
-  mine_veins = true,            -- Enable automatic ore vein mining
-  valuable_ores = {             -- Ores to track and vein mine
-    "minecraft:diamond_ore",
-    "minecraft:deepslate_diamond_ore",
-    "minecraft:iron_ore",
-    "minecraft:deepslate_iron_ore",
-    "minecraft:gold_ore",
-    "minecraft:deepslate_gold_ore",
-    "minecraft:redstone_ore",
-    "minecraft:deepslate_redstone_ore",
-    "minecraft:lapis_ore",
-    "minecraft:deepslate_lapis_ore",
-    "minecraft:emerald_ore",
-    "minecraft:deepslate_emerald_ore",
-    "minecraft:copper_ore",
-    "minecraft:deepslate_copper_ore"
-  }
-}
-```
-
-### Implementation Details
-
-**Navigation System** (No GPS required):
-- **Relative position tracking**: Track position relative to starting point (0, 0, 0)
-- **Direction tracking**: Track facing direction (0=north, 1=east, 2=south, 3=west)
-- **Movement counting**: Update position with each move (forward/back/up/down/turn)
-- **Pathfinding**: Calculate path back to start for inventory dump/refuel
-- **Limitation**: Position can desync if turtle is forcibly moved (picked up by player)
-- **Future**: GPS integration for absolute positioning (optional upgrade)
-
-**Ore Vein Mining Algorithm**:
-1. During normal mining, inspect each block before breaking
-2. If ore detected → save current position (x, y, z, facing)
-3. Start recursive vein mining:
-   - Mine current ore block
-   - Check all 6 adjacent blocks
-   - For each ore found, recursively mine it
-   - Mark blocks as visited to prevent loops
-4. When vein complete → navigate back to saved position
-5. Resume normal mining pattern
-
-**Liquid Handling**:
-1. Detect liquid with `turtle.inspect()`
-2. If liquid source found:
-   - Select cobblestone slot
-   - Place block to seal the source
-   - Continue mining
-3. If liquid keeps flowing → place multiple blocks to contain it
-
-### Usage
-```lua
-> branchMining
-Branch length? (default: 30): 25
-Number of branches? (default: 20): 15
-Spacing between branches? (default: 3): 3
-Target Y-level? (default: -59): -59
-Starting branch mining operation...
-```
-
----
-
 ## Implementation Roadmap
 
-### Phase 1: Core Movement & Mining (MVP)
-- [ ] Basic turtle movement functions (forward, back, turn, up, down)
-- [ ] Position tracking system (x, y, z, facing direction)
-- [ ] Safe dig function (dig until stable - handles gravel/sand)
-- [ ] Basic branch mining pattern (main tunnel + side branches)
-- [ ] Interactive prompts for configuration
+### Phase 1: Core Movement & Mining (MVP) - CURRENT
+- [x] Basic turtle movement functions (forward, back, turn, up, down)
+- [x] Position tracking system (x, y, z, facing direction)
+- [x] Safe dig function (dig until stable - handles gravel/sand)
+- [x] Basic branch mining pattern (main tunnel + side branches)
+- [x] Interactive prompts for configuration
+- [ ] **FIX: Add fuel checking before movement**
+- [ ] **FIX: Add auto-refuel from inventory**
 
 ### Phase 2: Fuel & Inventory Management
 - [ ] Fuel level monitoring
@@ -164,10 +233,3 @@ Starting branch mining operation...
 - [ ] Support for multiple chest types (ender, regular)
 - [ ] Optimize pathfinding for return trips
 - [ ] Add pause/resume commands
-
-### Phase 6: GPS Integration (Optional Upgrade)
-- [ ] Detect GPS availability on startup
-- [ ] Use GPS for absolute positioning if available
-- [ ] Fall back to relative tracking if GPS unavailable
-- [ ] GPS-based position verification (detect if turtle was moved)
-- [ ] Auto-correction when position desync detected

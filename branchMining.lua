@@ -27,11 +27,11 @@ local stats = {
 
 local function getFuelNeeded()
     -- Estimate fuel needed for the entire operation
-    -- Each branch: (spacing + branch_length * 2) moves
-    -- Total: num_branches * moves_per_branch + return trip
-    local moves_per_branch = config.spacing + (config.branch_length * 2)
-    local total_moves = config.num_branches * moves_per_branch
-    local return_trip = pos.x + pos.y + pos.z + 50  -- Extra buffer
+    -- Each position: spacing + (branch_length * 2) for LEFT + (branch_length * 2) for RIGHT
+    -- Total: num_branches * moves_per_position + return trip
+    local moves_per_position = config.spacing + (config.branch_length * 4)  -- 2 branches, each goes out and back
+    local total_moves = config.num_branches * moves_per_position
+    local return_trip = math.abs(pos.x) + math.abs(pos.y) + math.abs(pos.z) + 50  -- Extra buffer
     return total_moves + return_trip
 end
 
@@ -343,11 +343,7 @@ local function executeMining()
     print(string.format("Position: x=%d, y=%d, z=%d, facing=%d", pos.x, pos.y, pos.z, pos.facing))
     print("")
 
-    local side = 0  -- 0 for left, 1 for right
-
     for branch = 1, config.num_branches do
-        local sideStr = (side == 0) and "LEFT" or "RIGHT"
-
         -- Mine forward in main tunnel by spacing amount
         print(string.format("[Branch %d/%d] Mining main tunnel (%d blocks)...",
             branch, config.num_branches, config.spacing))
@@ -358,40 +354,36 @@ local function executeMining()
             end
         end
 
-        -- Turn to side branch direction (alternate left/right)
-        print(string.format("[Branch %d/%d] Turning %s, mining branch (%d blocks)...",
-            branch, config.num_branches, sideStr, config.branch_length))
-        if side == 0 then
-            turnLeft()
-        else
-            turnRight()
-        end
-
-        -- Mine the branch
+        -- Mine LEFT branch
+        print(string.format("[Branch %d/%d] Mining LEFT branch (%d blocks)...",
+            branch, config.num_branches, config.branch_length))
+        turnLeft()
         if not mineBranch(config.branch_length) then
-            print("ERROR: Branch mining failed")
+            print("ERROR: Left branch mining failed")
             return false
         end
+        -- After mineBranch, facing WEST (into branch). Turn right to face NORTH.
+        turnRight()
 
-        -- Turn back to face main tunnel direction
-        -- (opposite of the turn we did to enter the branch)
-        if side == 0 then
-            turnRight()  -- We turned left to enter, turn right to face main tunnel
-        else
-            turnLeft()   -- We turned right to enter, turn left to face main tunnel
+        -- Mine RIGHT branch
+        print(string.format("[Branch %d/%d] Mining RIGHT branch (%d blocks)...",
+            branch, config.num_branches, config.branch_length))
+        turnRight()
+        if not mineBranch(config.branch_length) then
+            print("ERROR: Right branch mining failed")
+            return false
         end
+        -- After mineBranch, facing EAST (into branch). Turn left to face NORTH.
+        turnLeft()
 
         -- Update stats and display progress
         stats.branches_completed = stats.branches_completed + 1
         local currentFuel = turtle.getFuelLevel()
         local fuelStr = (currentFuel == "unlimited") and "unlimited" or tostring(currentFuel)
-        print(string.format("[Branch %d/%d %s] DONE | Mined: %d | Fuel: %s | Pos: %d,%d,%d",
-            branch, config.num_branches, sideStr, stats.blocks_mined,
+        print(string.format("[Branch %d/%d] DONE (L+R) | Mined: %d | Fuel: %s | Pos: %d,%d,%d",
+            branch, config.num_branches, stats.blocks_mined,
             fuelStr, pos.x, pos.y, pos.z))
         print("")
-
-        -- Alternate side for next branch
-        side = 1 - side
     end
 
     print("")

@@ -25,3 +25,6 @@ __pycache__/
 
 # Sync configuration (contains local paths)
 sync-config.local.sh
+
+# CC:Tweaked mod source (reference only)
+CC-Tweaked/

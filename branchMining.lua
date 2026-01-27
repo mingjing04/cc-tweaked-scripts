@@ -285,7 +285,7 @@ local function mineBranch(length)
         end
     end
 
-    -- Turn around to face back toward main tunnel
+    -- Turn around to face back toward main tunnel (180°)
     turnRight()
     turnRight()
 
@@ -301,8 +301,12 @@ local function mineBranch(length)
         end
     end
 
-    -- NOTE: We exit facing INTO the branch (opposite of entry direction)
-    -- The caller (executeMining) handles turning back to face main tunnel
+    -- Turn around again to face branch direction (180°)
+    -- This way we exit facing the BRANCH direction (not main tunnel)
+    -- The caller handles turning to face main tunnel
+    turnRight()
+    turnRight()
+
     return true
 end
 

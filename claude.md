@@ -210,30 +210,31 @@ wget https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/bran
 ## Bugs Found & Fixed
 
 ### BUG: Turtle not turning back to main tunnel after branch
-**Found:** After `mineBranch()` returned, the turtle was facing INTO the branch instead of along the main tunnel.
+**Found:** After `mineBranch()` returned, the original code had no logic to turn back to face the main tunnel direction.
 
-**Cause:** Original code had 4x `turnRight()` in `mineBranch()`:
+**Root cause:** `mineBranch()` has 4x `turnRight()` (2 to turn around, 2 after walking back), so it exits facing the **branch direction**:
 ```lua
--- Original (wrong)
-turnRight()  -- 1. Turn around (180°)
-turnRight()  -- 2.
--- walk back --
-turnRight()  -- 3. Turn another 180° (total 360° = same direction)
-turnRight()  -- 4.
+turnRight(); turnRight()  -- Turn 180° to face back
+-- walk back to junction --
+turnRight(); turnRight()  -- Turn 180° again, now facing branch direction
 ```
-This made the turtle face the branch direction again, not the main tunnel.
 
-**Fix:**
-1. `mineBranch()` now only does 2x turnRight to turn around and walk back
-2. `executeMining()` now turns back to main tunnel direction after each branch:
+**Why 4 turnRights is correct:**
+- Exit facing branch direction (WEST for left branch, EAST for right branch)
+- Then turn once to face main tunnel (NORTH)
+- Left branch (WEST): `turnRight()` → NORTH ✓
+- Right branch (EAST): `turnLeft()` → NORTH ✓
+
+**Fix:** Added turn-back logic in `executeMining()` after each branch:
 ```lua
--- After mineBranch returns, turtle faces opposite of entry direction
 if side == 0 then
-    turnRight()  -- Entered via turnLeft, so turnRight to face main tunnel
+    turnRight()  -- Left branch: exited WEST, turn right to face NORTH
 else
-    turnLeft()   -- Entered via turnRight, so turnLeft to face main tunnel
+    turnLeft()   -- Right branch: exited EAST, turn left to face NORTH
 end
 ```
+
+**Wrong approach (what we tried):** Removing the second pair of turnRights made the turtle exit facing the OPPOSITE of branch direction, which required the opposite turn logic and caused confusion.
 
 ### Phase 2: Fuel & Inventory Management
 - [ ] Fuel level monitoring

@@ -13,7 +13,8 @@ local config = {
     num_branches = 20,
     spacing = 3,
     fuel_reserve = 100,  -- Minimum fuel to keep for emergencies
-    auto_refuel_coal = true  -- Auto-consume coal/charcoal for fuel
+    auto_refuel_coal = true,  -- Auto-consume coal/charcoal for fuel
+    pave = true  -- Fill empty ground below turtle while mining
 }
 
 local stats = {
@@ -26,6 +27,13 @@ local FUEL_ITEMS = {
     ["minecraft:coal"] = true,
     ["minecraft:charcoal"] = true,
     ["minecraft:coal_block"] = true,
+}
+
+local PAVE_ITEMS = {
+    ["minecraft:cobblestone"] = true,
+    ["minecraft:cobbled_deepslate"] = true,
+    ["minecraft:dirt"] = true,
+    ["minecraft:netherrack"] = true,
 }
 
 -- ============================================================================
@@ -297,6 +305,25 @@ local function digDown()
     return dug
 end
 
+local function paveDown()
+    if not config.pave then return false end
+    if turtle.detectDown() then return false end  -- ground exists
+
+    local originalSlot = turtle.getSelectedSlot()
+    for slot = 1, 16 do
+        local detail = turtle.getItemDetail(slot)
+        if detail and PAVE_ITEMS[detail.name] then
+            turtle.select(slot)
+            if turtle.placeDown() then
+                turtle.select(originalSlot)
+                return true
+            end
+        end
+    end
+    turtle.select(originalSlot)
+    return false  -- no pave material available
+end
+
 -- ============================================================================
 -- MINING FUNCTIONS
 -- ============================================================================
@@ -329,6 +356,7 @@ local function mineForward()
             sleep(0.5)
         end
     end
+    paveDown()
     return true
 end
 
@@ -505,11 +533,16 @@ local function getConfiguration()
     config.num_branches = getUserInput("Number of branches", 20)
     config.spacing = getUserInput("Spacing between branches", 3)
 
+    write("Enable floor paving? (y/n, default: y): ")
+    local paveInput = read()
+    config.pave = (paveInput ~= "n" and paveInput ~= "N")
+
     print("")
     print("Configuration:")
     print("  Branch length: " .. config.branch_length)
     print("  Number of branches: " .. config.num_branches)
     print("  Spacing: " .. config.spacing)
+    print("  Floor paving: " .. (config.pave and "yes" or "no"))
     print("")
 
     write("Start mining? (y/n): ")

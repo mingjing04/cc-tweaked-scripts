@@ -15,6 +15,8 @@ local mock = {
     selected_slot = 1,
     logs = {},
     move_count = 0,
+    pave_count = 0,
+    detect_down_result = false,  -- configurable: false = empty ground
 }
 
 -- Fuel values per item for mock refueling
@@ -107,7 +109,7 @@ turtle = {
 
     detect = function() return false end,
     detectUp = function() return false end,
-    detectDown = function() return false end,
+    detectDown = function() return mock.detect_down_result end,
 
     inspect = function() return false, "No block" end,
     inspectUp = function() return false, "No block" end,
@@ -115,7 +117,7 @@ turtle = {
 
     place = function() return true end,
     placeUp = function() return true end,
-    placeDown = function() return true end,
+    placeDown = function() log("placeDown", "OK"); mock.pave_count = mock.pave_count + 1; return true end,
 
     attack = function() return false end,
     attackUp = function() return false end,
@@ -206,6 +208,8 @@ local function reset_mock()
     mock.selected_slot = 1
     mock.logs = {}
     mock.move_count = 0
+    mock.pave_count = 0
+    mock.detect_down_result = false
 end
 
 local function print_logs()
@@ -419,14 +423,14 @@ local function test_full_program()
 
     -- Override read() to return specific values
     local input_count = 0
-    local inputs = {"2", "2", "2", "y"}  -- length=2, branches=2, spacing=2, confirm=y
+    local inputs = {"2", "2", "2", "y", "y"}  -- length=2, branches=2, spacing=2, pave=y, confirm=y
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
     end
 
     -- Run the actual program
-    print("Running branchMining.lua with config: length=2, branches=2, spacing=2")
+    print("Running branchMining.lua with config: length=2, branches=2, spacing=2, pave=y")
     dofile("branchMining.lua")
 
     print(string.format("\nFinal position: (%d,%d,%d) facing %s",
@@ -502,7 +506,7 @@ local function test_auto_refuel_coal()
 
     -- Override read for config: small mining run
     local input_count = 0
-    local inputs = {"1", "1", "1", "y"}  -- length=1, branches=1, spacing=1
+    local inputs = {"1", "1", "1", "y", "y"}  -- length=1, branches=1, spacing=1, pave=y, confirm=y
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -569,6 +573,86 @@ local function test_get_fuel_needed()
 end
 
 -- ============================================================================
+-- PAVE SYSTEM TESTS
+-- ============================================================================
+
+local function test_pave_system()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Pave system (floor paving during mining)")
+    print(string.rep("=", 60))
+
+    -- Test 1: Paving with cobblestone when ground is empty
+    print("\n--- Test: Pave with cobblestone (empty ground) ---")
+    reset_mock()
+    mock.detect_down_result = false  -- empty ground
+    mock.inventory[1] = { name = "minecraft:cobblestone", count = 64 }
+
+    local input_count = 0
+    local inputs = {"2", "1", "1", "y", "y"}  -- length=2, branches=1, spacing=1, pave=y, confirm=y
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    -- mineForward is called: 1 (spacing) + 2 (left branch) + 2 (right branch) = 5 times
+    -- Each mineForward calls paveDown once, and ground is empty → 5 placeDown calls
+    assert_equal(5, mock.pave_count, "5 blocks paved (1 spacing + 2 left + 2 right)")
+
+    -- Test 2: No paving when ground exists
+    print("\n--- Test: No paving when ground exists ---")
+    reset_mock()
+    mock.detect_down_result = true  -- solid ground
+    mock.inventory[1] = { name = "minecraft:cobblestone", count = 64 }
+
+    input_count = 0
+    inputs = {"2", "1", "1", "y", "y"}
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    assert_equal(0, mock.pave_count, "0 blocks paved (ground exists)")
+
+    -- Test 3: No paving when config.pave = false
+    print("\n--- Test: No paving when disabled ---")
+    reset_mock()
+    mock.detect_down_result = false  -- empty ground
+    mock.inventory[1] = { name = "minecraft:cobblestone", count = 64 }
+
+    input_count = 0
+    inputs = {"2", "1", "1", "n", "y"}  -- pave=n
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    assert_equal(0, mock.pave_count, "0 blocks paved (paving disabled)")
+
+    -- Test 4: No pave materials in inventory
+    print("\n--- Test: No pave materials available ---")
+    reset_mock()
+    mock.detect_down_result = false  -- empty ground
+    -- No cobblestone/dirt/etc in inventory
+
+    input_count = 0
+    inputs = {"2", "1", "1", "y", "y"}  -- pave=y
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    assert_equal(0, mock.pave_count, "0 blocks paved (no pave materials)")
+end
+
+-- ============================================================================
 -- RUN TESTS
 -- ============================================================================
 
@@ -591,5 +675,10 @@ test_mock_refuel()
 test_fuel_to_return()
 test_get_fuel_needed()
 test_auto_refuel_coal()
+
+print("\n" .. string.rep("=", 60))
+print("Running pave system tests...")
+print(string.rep("=", 60))
+test_pave_system()
 
 print("\n=== TESTS COMPLETE ===")

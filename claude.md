@@ -240,7 +240,7 @@ turnRight()         -- WEST → NORTH
 - [ ] Resume from saved position after dump
 
 ### Phase 3: Safety & Quality of Life
-- [ ] pave system that fills the ground if empty
+- [x] pave system that fills the ground if empty
 - [ ] Liquid detection and sealing with cobblestone
 - [ ] Bedrock detection and handling
 - [ ] Progress display (blocks mined, fuel used, time elapsed)

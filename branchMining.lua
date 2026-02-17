@@ -344,6 +344,9 @@ local function mineBranch(length)
         end
     end
 
+    -- Clear ceiling at branch endpoint (mineForward only digs up BEFORE moving)
+    digUp()
+
     -- Turn around to face back toward main tunnel (180°)
     turnRight()
     turnRight()
@@ -360,12 +363,8 @@ local function mineBranch(length)
         end
     end
 
-    -- Turn around again to face branch direction (180°)
-    -- This way we exit facing the BRANCH direction (not main tunnel)
-    -- The caller handles turning to face main tunnel
-    turnRight()
-    turnRight()
-
+    -- Turtle now exits facing TOWARD the junction (opposite of branch direction)
+    -- The caller handles turning to the next direction
     return true
 end
 
@@ -437,26 +436,26 @@ local function executeMining()
         -- Mine LEFT branch
         print(string.format("[Branch %d/%d] Mining LEFT branch (%d blocks)...",
             branch, config.num_branches, config.branch_length))
-        turnLeft()
+        turnLeft()  -- NORTH → WEST
         if not mineBranch(config.branch_length) then
             print("ERROR: Left branch mining failed")
             return false
         end
-        -- After mineBranch, facing WEST (into branch). Turn right to face NORTH.
-        turnRight()
+        -- After mineBranch, facing EAST (walked back from WEST branch)
+        -- EAST is already the right branch direction — go directly
         tryAutoRefuelCoal()
 
         -- Mine RIGHT branch
         print(string.format("[Branch %d/%d] Mining RIGHT branch (%d blocks)...",
             branch, config.num_branches, config.branch_length))
-        turnRight()
         if not mineBranch(config.branch_length) then
             print("ERROR: Right branch mining failed")
             return false
         end
-        -- After mineBranch, facing EAST (into branch). Turn left to face NORTH.
-        turnLeft()
+        -- After mineBranch, facing WEST (walked back from EAST branch)
+        -- Turn right to face NORTH
         tryAutoRefuelCoal()
+        turnRight()  -- WEST → NORTH
 
         -- Update stats and display progress
         stats.branches_completed = stats.branches_completed + 1

@@ -339,17 +339,12 @@ local function test_single_branch_left()
     for i = 1, 5 do
         turtle.forward()
     end
-    print(string.format("Back at junction: (%d,%d,%d) facing %s",
+    print(string.format("Back at junction: (%d,%d,%d) facing %s (should be EAST)",
         mock.x, mock.y, mock.z, FACING_NAMES[mock.facing + 1]))
 
-    -- Turn around again (2x turnRight = 180) - this is the 4 turnRight pattern
-    turtle.turnRight()
-    turtle.turnRight()
-    print(string.format("After 4th turnRight: facing %s (should be WEST)",
-        FACING_NAMES[mock.facing + 1]))
-
-    -- Now turn right to face north (main tunnel)
-    turtle.turnRight()
+    -- Turtle exits facing EAST (toward junction from left/west branch)
+    -- Turn left to face NORTH (main tunnel)
+    turtle.turnLeft()
     print(string.format("After turn back to main: facing %s (should be NORTH)",
         FACING_NAMES[mock.facing + 1]))
 
@@ -378,43 +373,37 @@ local function test_two_branches()
 
         -- LEFT branch
         print("  Mining LEFT branch...")
-        turtle.turnLeft()
+        turtle.turnLeft()  -- NORTH → WEST
         for i = 1, branch_length do
             turtle.forward()
         end
         print(string.format("  At LEFT end: (%d,%d,%d)", mock.x, mock.y, mock.z))
 
-        -- Return from LEFT: turn 180, walk back, turn 180
+        -- Return from LEFT: turn 180, walk back (exits facing EAST)
         turtle.turnRight()
         turtle.turnRight()
         for i = 1, branch_length do
             turtle.forward()
         end
-        turtle.turnRight()
-        turtle.turnRight()
-        -- Now facing WEST (into left branch), turn right to face NORTH
-        turtle.turnRight()
-        print(string.format("  Back from LEFT, facing: %s", FACING_NAMES[mock.facing + 1]))
+        -- Now facing EAST — already the right branch direction
+        print(string.format("  Back from LEFT, facing: %s (should be EAST)", FACING_NAMES[mock.facing + 1]))
 
-        -- RIGHT branch
+        -- RIGHT branch — already facing EAST, go directly
         print("  Mining RIGHT branch...")
-        turtle.turnRight()
         for i = 1, branch_length do
             turtle.forward()
         end
         print(string.format("  At RIGHT end: (%d,%d,%d)", mock.x, mock.y, mock.z))
 
-        -- Return from RIGHT: turn 180, walk back, turn 180
+        -- Return from RIGHT: turn 180, walk back (exits facing WEST)
         turtle.turnRight()
         turtle.turnRight()
         for i = 1, branch_length do
             turtle.forward()
         end
+        -- Now facing WEST, turn right to face NORTH
         turtle.turnRight()
-        turtle.turnRight()
-        -- Now facing EAST (into right branch), turn left to face NORTH
-        turtle.turnLeft()
-        print(string.format("  Back from RIGHT, facing: %s", FACING_NAMES[mock.facing + 1]))
+        print(string.format("  Back from RIGHT, facing: %s (should be NORTH)", FACING_NAMES[mock.facing + 1]))
     end
 
     -- After 2 positions with spacing=2, we should be at z=-4 facing north

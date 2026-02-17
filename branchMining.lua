@@ -12,7 +12,8 @@ local config = {
     branch_length = 30,
     num_branches = 20,
     spacing = 3,
-    fuel_reserve = 100  -- Minimum fuel to keep for emergencies
+    fuel_reserve = 100,  -- Minimum fuel to keep for emergencies
+    auto_refuel_coal = true  -- Auto-consume coal/charcoal for fuel
 }
 
 local stats = {
@@ -21,9 +22,22 @@ local stats = {
     fuel_used = 0
 }
 
+local FUEL_ITEMS = {
+    ["minecraft:coal"] = true,
+    ["minecraft:charcoal"] = true,
+    ["minecraft:coal_block"] = true,
+}
+
 -- ============================================================================
 -- FUEL MANAGEMENT (CRITICAL!)
 -- ============================================================================
+
+local function fuelToReturn()
+    -- Manhattan distance from current position to origin + 20% buffer (minimum 10)
+    local dist = math.abs(pos.x) + math.abs(pos.y) + math.abs(pos.z)
+    local buffer = math.max(10, math.ceil(dist * 0.2))
+    return dist + buffer
+end
 
 local function getFuelNeeded()
     -- Estimate fuel needed for the entire operation
@@ -31,7 +45,9 @@ local function getFuelNeeded()
     -- Total: num_branches * moves_per_position + return trip
     local moves_per_position = config.spacing + (config.branch_length * 4)  -- 2 branches, each goes out and back
     local total_moves = config.num_branches * moves_per_position
-    local return_trip = math.abs(pos.x) + math.abs(pos.y) + math.abs(pos.z) + 50  -- Extra buffer
+    -- Return trip: turtle will be at z = -(num_branches * spacing) at the end
+    local final_distance = config.num_branches * config.spacing
+    local return_trip = final_distance + 50  -- Extra buffer
     return total_moves + return_trip
 end
 
@@ -72,6 +88,37 @@ local function refuel(needed)
     return turtle.getFuelLevel() >= needed
 end
 
+local function tryAutoRefuelCoal()
+    if not config.auto_refuel_coal then return end
+
+    local level = turtle.getFuelLevel()
+    if level == "unlimited" then return end
+    if level >= config.fuel_reserve then return end
+
+    local originalSlot = turtle.getSelectedSlot()
+    local refueled = false
+
+    for slot = 1, 16 do
+        local detail = turtle.getItemDetail(slot)
+        if detail and FUEL_ITEMS[detail.name] then
+            turtle.select(slot)
+            while turtle.getFuelLevel() < config.fuel_reserve and turtle.getItemCount(slot) > 0 do
+                turtle.refuel(1)
+            end
+            refueled = true
+            if turtle.getFuelLevel() >= config.fuel_reserve then
+                break
+            end
+        end
+    end
+
+    if refueled then
+        print(string.format("  [Fuel] Auto-refueled to %d", turtle.getFuelLevel()))
+    end
+
+    turtle.select(originalSlot)
+end
+
 local function checkFuel()
     local level = turtle.getFuelLevel()
     if level == "unlimited" then
@@ -87,6 +134,18 @@ local function checkFuel()
             return false
         end
     end
+
+    -- Return-trip awareness: warn if fuel is getting low relative to distance home
+    local returnCost = fuelToReturn()
+    if level <= returnCost then
+        print(string.format("  [Fuel] WARNING: Fuel (%d) <= return cost (%d)!", level, returnCost))
+        -- Try to refuel enough for return + reserve
+        local target = returnCost + config.fuel_reserve
+        if not refuel(target) then
+            print(string.format("  [Fuel] CRITICAL: Cannot refuel to %d! Current: %d", target, turtle.getFuelLevel()))
+        end
+    end
+
     return true
 end
 
@@ -311,6 +370,27 @@ local function mineBranch(length)
 end
 
 -- ============================================================================
+-- FUEL STATUS REPORTING
+-- ============================================================================
+
+local function printFuelStatus(branch_num)
+    local level = turtle.getFuelLevel()
+    if level == "unlimited" then return end
+
+    local returnCost = fuelToReturn()
+    local remaining_branches = config.num_branches - branch_num
+    local moves_per_branch = config.spacing + (config.branch_length * 4)
+    local fuel_to_finish = remaining_branches * moves_per_branch
+    local efficiency = "N/A"
+    if stats.fuel_used > 0 then
+        efficiency = string.format("%.1f", stats.blocks_mined / stats.fuel_used)
+    end
+
+    print(string.format("  [Fuel] Level: %d | Return cost: %d | To finish: ~%d | Blocks/fuel: %s",
+        level, returnCost, fuel_to_finish, efficiency))
+end
+
+-- ============================================================================
 -- MAIN MINING PATTERN
 -- ============================================================================
 
@@ -364,6 +444,7 @@ local function executeMining()
         end
         -- After mineBranch, facing WEST (into branch). Turn right to face NORTH.
         turnRight()
+        tryAutoRefuelCoal()
 
         -- Mine RIGHT branch
         print(string.format("[Branch %d/%d] Mining RIGHT branch (%d blocks)...",
@@ -375,6 +456,7 @@ local function executeMining()
         end
         -- After mineBranch, facing EAST (into branch). Turn left to face NORTH.
         turnLeft()
+        tryAutoRefuelCoal()
 
         -- Update stats and display progress
         stats.branches_completed = stats.branches_completed + 1
@@ -383,6 +465,7 @@ local function executeMining()
         print(string.format("[Branch %d/%d] DONE (L+R) | Mined: %d | Fuel: %s | Pos: %d,%d,%d",
             branch, config.num_branches, stats.blocks_mined,
             fuelStr, pos.x, pos.y, pos.z))
+        printFuelStatus(branch)
         print("")
     end
 
@@ -391,6 +474,13 @@ local function executeMining()
     print(string.format("Total branches: %d", stats.branches_completed))
     print(string.format("Total blocks mined: %d", stats.blocks_mined))
     print(string.format("Fuel used: %d", stats.fuel_used))
+    local endFuel = turtle.getFuelLevel()
+    if endFuel ~= "unlimited" then
+        print(string.format("Ending fuel: %d", endFuel))
+        if stats.fuel_used > 0 then
+            print(string.format("Mining efficiency: %.1f blocks/fuel", stats.blocks_mined / stats.fuel_used))
+        end
+    end
     print(string.format("Final position: x=%d, y=%d, z=%d", pos.x, pos.y, pos.z))
     return true
 end

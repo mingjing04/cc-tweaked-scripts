@@ -71,7 +71,7 @@ Use GitHub as your source and wget in-game to pull updates.
 
 2. In ComputerCraft, download with:
    ```lua
-   wget https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/branchMining.lua branchMining.lua
+   wget https://raw.githubusercontent.com/mingjing04/cc-tweaked-scripts/main/branchMining.lua branchMining.lua
    ```
 
 3. Create an update script in-game:

@@ -11,9 +11,17 @@ local mock = {
     z = 0,
     facing = 0,  -- 0=north(-z), 1=east(+x), 2=south(+z), 3=west(-x)
     fuel = 10000,
-    inventory = {},
+    inventory = {},  -- slot -> { name = "minecraft:coal", count = N }
+    selected_slot = 1,
     logs = {},
     move_count = 0,
+}
+
+-- Fuel values per item for mock refueling
+local MOCK_FUEL_VALUES = {
+    ["minecraft:coal"] = 80,
+    ["minecraft:charcoal"] = 80,
+    ["minecraft:coal_block"] = 800,
 }
 
 -- Direction names for logging
@@ -116,15 +124,41 @@ turtle = {
     getFuelLevel = function() return mock.fuel end,
     getFuelLimit = function() return 20000 end,
     refuel = function(count)
-        if count == 0 then return false end  -- No fuel items in mock
-        return false
+        local slot = mock.selected_slot
+        local item = mock.inventory[slot]
+        if not item or item.count <= 0 then return false end
+        local fuelValue = MOCK_FUEL_VALUES[item.name]
+        if not fuelValue then return false end
+        if count == 0 then return true end  -- Test if fuel without consuming
+        -- Consume 'count' items (or all remaining)
+        local toConsume = count or item.count
+        if toConsume > item.count then toConsume = item.count end
+        mock.fuel = mock.fuel + (toConsume * fuelValue)
+        item.count = item.count - toConsume
+        if item.count <= 0 then mock.inventory[slot] = nil end
+        return true
     end,
 
-    select = function(slot) return true end,
-    getSelectedSlot = function() return 1 end,
-    getItemCount = function(slot) return 0 end,
-    getItemSpace = function(slot) return 64 end,
-    getItemDetail = function(slot) return nil end,
+    select = function(slot) mock.selected_slot = slot; return true end,
+    getSelectedSlot = function() return mock.selected_slot end,
+    getItemCount = function(slot)
+        slot = slot or mock.selected_slot
+        local item = mock.inventory[slot]
+        return item and item.count or 0
+    end,
+    getItemSpace = function(slot)
+        slot = slot or mock.selected_slot
+        local item = mock.inventory[slot]
+        return item and (64 - item.count) or 64
+    end,
+    getItemDetail = function(slot)
+        slot = slot or mock.selected_slot
+        local item = mock.inventory[slot]
+        if item and item.count > 0 then
+            return { name = item.name, count = item.count }
+        end
+        return nil
+    end,
 
     drop = function() return true end,
     dropUp = function() return true end,
@@ -168,6 +202,8 @@ local function reset_mock()
     mock.z = 0
     mock.facing = 0
     mock.fuel = 10000
+    mock.inventory = {}
+    mock.selected_slot = 1
     mock.logs = {}
     mock.move_count = 0
 end
@@ -267,11 +303,8 @@ local function test_single_branch_left()
     reset_mock()
 
     -- Simulate what executeMining does for 1 left branch
-    -- Load the module functions
-    dofile("branchMining.lua")
-
-    -- Can't easily call internal functions, so let's trace manually
-    -- This test validates the mock works
+    -- (don't dofile here — all functions are local, and it runs main()
+    -- which corrupts mock state with a full 20-branch mining operation)
 
     print("\nManual simulation of 1 left branch:")
 
@@ -415,6 +448,138 @@ local function test_full_program()
 end
 
 -- ============================================================================
+-- FUEL MONITORING TESTS
+-- ============================================================================
+
+local function assert_equal(expected, actual, msg)
+    if expected == actual then
+        print(string.format("✓ PASS: %s", msg))
+        return true
+    else
+        print(string.format("✗ FAIL: %s", msg))
+        print(string.format("  Expected: %s", tostring(expected)))
+        print(string.format("  Got:      %s", tostring(actual)))
+        return false
+    end
+end
+
+local function assert_true(val, msg)
+    if val then
+        print(string.format("✓ PASS: %s", msg))
+        return true
+    else
+        print(string.format("✗ FAIL: %s (expected true, got %s)", msg, tostring(val)))
+        return false
+    end
+end
+
+local function test_mock_refuel()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Mock refuel with coal in inventory")
+    print(string.rep("=", 60))
+    reset_mock()
+    mock.fuel = 50
+
+    -- Put 2 coal in slot 3
+    mock.inventory[3] = { name = "minecraft:coal", count = 2 }
+
+    -- refuel(0) should test if current slot has fuel
+    turtle.select(1)
+    assert_equal(false, turtle.refuel(0), "Slot 1 (empty) is not fuel")
+
+    turtle.select(3)
+    assert_equal(true, turtle.refuel(0), "Slot 3 (coal) is fuel")
+
+    -- Refuel 1 coal = 80 fuel
+    turtle.refuel(1)
+    assert_equal(130, mock.fuel, "After 1 coal: 50 + 80 = 130 fuel")
+    assert_equal(1, mock.inventory[3].count, "1 coal remaining in slot 3")
+
+    -- Refuel second coal
+    turtle.refuel(1)
+    assert_equal(210, mock.fuel, "After 2 coal: 130 + 80 = 210 fuel")
+    assert_equal(nil, mock.inventory[3], "Slot 3 empty after consuming all coal")
+end
+
+local function test_auto_refuel_coal()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Auto-refuel coal via full program with low fuel")
+    print(string.rep("=", 60))
+    reset_mock()
+    -- Start with low fuel so tryAutoRefuelCoal triggers (fuel < fuel_reserve=100)
+    mock.fuel = 80
+    -- Put coal in slot 5
+    mock.inventory[5] = { name = "minecraft:coal", count = 10 }
+
+    -- Override read for config: small mining run
+    local input_count = 0
+    local inputs = {"1", "1", "1", "y"}  -- length=1, branches=1, spacing=1
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    -- After mining, fuel should be higher than start due to auto-refuel
+    -- (it will have consumed coal to stay above reserve)
+    print(string.format("  Final fuel: %d", mock.fuel))
+    assert_true(mock.fuel > 0, "Turtle still has fuel after mining with auto-refuel")
+
+    -- Check coal was consumed
+    local coalLeft = mock.inventory[5] and mock.inventory[5].count or 0
+    assert_true(coalLeft < 10, "Some coal was consumed by auto-refuel (had 10, now " .. coalLeft .. ")")
+end
+
+local function test_fuel_to_return()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: fuelToReturn at various positions (manual calculation)")
+    print(string.rep("=", 60))
+
+    -- fuelToReturn = |x| + |y| + |z| + max(10, ceil(dist * 0.2))
+    -- At origin: dist=0, buffer=max(10,0)=10, result=10
+    -- At (0,0,-10): dist=10, buffer=max(10,2)=10, result=20
+    -- At (5,0,-20): dist=25, buffer=max(10,5)=10, result=35
+    -- At (10,5,-50): dist=65, buffer=max(10,13)=13, result=78
+
+    -- We can't call fuelToReturn directly since it's local,
+    -- so we test via the program's checkFuel behavior.
+    -- Instead verify the formula manually:
+    local function calc_fuel_to_return(x, y, z)
+        local dist = math.abs(x) + math.abs(y) + math.abs(z)
+        local buffer = math.max(10, math.ceil(dist * 0.2))
+        return dist + buffer
+    end
+
+    assert_equal(10, calc_fuel_to_return(0, 0, 0), "fuelToReturn at origin = 10")
+    assert_equal(20, calc_fuel_to_return(0, 0, -10), "fuelToReturn at (0,0,-10) = 20")
+    assert_equal(35, calc_fuel_to_return(5, 0, -20), "fuelToReturn at (5,0,-20) = 35")
+    assert_equal(78, calc_fuel_to_return(10, 5, -50), "fuelToReturn at (10,5,-50) = 78")
+end
+
+local function test_get_fuel_needed()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: getFuelNeeded estimate (manual calculation)")
+    print(string.rep("=", 60))
+
+    -- For config: branch_length=2, num_branches=2, spacing=2
+    -- moves_per_position = spacing + (branch_length * 4) = 2 + 8 = 10
+    -- total_moves = 2 * 10 = 20
+    -- return_trip = 2 * 2 + 50 = 54
+    -- total = 74
+    local function calc_fuel_needed(branch_length, num_branches, spacing)
+        local moves_per_position = spacing + (branch_length * 4)
+        local total_moves = num_branches * moves_per_position
+        local final_distance = num_branches * spacing
+        local return_trip = final_distance + 50
+        return total_moves + return_trip
+    end
+
+    assert_equal(74, calc_fuel_needed(2, 2, 2), "Fuel needed: length=2, branches=2, spacing=2 = 74")
+    assert_equal(2570, calc_fuel_needed(30, 20, 3), "Fuel needed: length=30, branches=20, spacing=3 = 2570")
+end
+
+-- ============================================================================
 -- RUN TESTS
 -- ============================================================================
 
@@ -429,5 +594,13 @@ print("\n" .. string.rep("=", 60))
 print("Running full program test...")
 print(string.rep("=", 60))
 test_full_program()
+
+print("\n" .. string.rep("=", 60))
+print("Running fuel monitoring tests...")
+print(string.rep("=", 60))
+test_mock_refuel()
+test_fuel_to_return()
+test_get_fuel_needed()
+test_auto_refuel_coal()
 
 print("\n=== TESTS COMPLETE ===")

@@ -237,15 +237,15 @@ end
 **Wrong approach (what we tried):** Removing the second pair of turnRights made the turtle exit facing the OPPOSITE of branch direction, which required the opposite turn logic and caused confusion.
 
 ### Phase 2: Fuel & Inventory Management
-- [ ] Fuel level monitoring
-- [ ] Auto-refuel from mined coal in inventory
-- [ ] Fuel estimation calculator (warn if not enough fuel to start)
+- [x] Fuel level monitoring (periodic fuel status reports with return cost, efficiency)
+- [x] Auto-refuel from mined coal in inventory (FUEL_ITEMS table, tryAutoRefuelCoal)
+- [x] Fuel estimation calculator (warn if not enough fuel to start)
 - [ ] Inventory full detection
 - [ ] Return to base and dump to chest
 - [ ] Resume from saved position after dump
 
 ### Phase 3: Safety & Quality of Life
-- [ ] Torch placement system (every N blocks)
+- [ ] pave system that fills the ground if empty
 - [ ] Liquid detection and sealing with cobblestone
 - [ ] Bedrock detection and handling
 - [ ] Progress display (blocks mined, fuel used, time elapsed)

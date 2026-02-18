@@ -1,115 +1,76 @@
-# ComputerCraft: Tweaked Scripts
+# CC:Tweaked Branch Mining
 
-This repository contains Lua scripts for ComputerCraft: Tweaked in Minecraft.
+An automated branch mining program for [ComputerCraft: Tweaked](https://tweaked.cc/) turtles. Mines a grid of branch tunnels, auto-refuels from coal in inventory, paves gaps in the floor, and recursively mines ore veins found in tunnel walls.
 
-## Scripts
+## Quick Start
 
-- [branchMining.lua](branchMining.lua) - Branch mining automation
+Run this on your turtle's terminal:
 
-## CI/CD Deployment Methods
+```lua
+wget https://raw.githubusercontent.com/mingjing04/cc-tweaked-scripts/main/branchMining.lua branchMining.lua
+branchMining
+```
 
-### Method 1: Direct File Sync (Recommended for Local Development)
+## Features
 
-Automatically sync your code to the Minecraft saves folder whenever you make changes.
+- **Branch mining pattern** -- Mines a 2-high main tunnel with evenly spaced left + right branches
+- **Ore vein mining** -- Scans branch walls, floor, and ceiling for ore, then recursively mines connected veins in all 6 directions
+- **Auto fuel management** -- Monitors fuel level, auto-consumes coal/charcoal from inventory, warns when fuel is low relative to return distance
+- **Floor paving** -- Fills empty ground below the turtle with cobblestone, deepslate, dirt, or netherrack from inventory
+- **Gravel/sand handling** -- Keeps digging until blocks stop falling
+- **Position tracking** -- Tracks x/y/z coordinates and facing direction throughout the operation
 
-#### Setup:
+## Configuration
 
-1. Find your Minecraft saves folder:
-   - Windows: `%APPDATA%\.minecraft\saves\<world-name>\computercraft\computer\<computer-id>`
-   - macOS: `~/Library/Application Support/minecraft/saves/<world-name>/computercraft/computer/<computer-id>`
-   - Linux: `~/.minecraft/saves/<world-name>/computercraft/computer/<computer-id>`
+The program prompts you before mining starts:
 
-2. Configure the sync script:
-   ```bash
-   cp sync-config.example.sh sync-config.local.sh
-   # Edit sync-config.local.sh with your paths
-   ```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Branch length | 30 | How far each side branch extends |
+| Number of branches | 20 | How many branch pairs to mine |
+| Spacing | 3 | Blocks between branches along the main tunnel |
+| Floor paving | yes | Fill empty ground with cobblestone/dirt |
+| Ore vein mining | yes | Scan branches for ore veins after mining |
 
-3. Run the file watcher:
-   ```bash
-   ./watch-and-sync.sh
-   ```
+## Setup Tips
 
-This will automatically copy files to Minecraft whenever you save changes!
+- **Fuel**: Load coal or charcoal into the turtle's inventory before starting. The program estimates total fuel needed and warns you if it's short.
+- **Paving material**: Bring cobblestone, cobbled deepslate, dirt, or netherrack for floor paving.
+- **Starting position**: Place the turtle facing the direction you want the main tunnel to go. It mines forward from where it stands.
+- **Fuel values**: Coal/Charcoal = 80, Coal Block = 800, Lava Bucket = 1000.
 
-### Method 2: Pastebin Upload (Best for Sharing)
+## How It Works
 
-Upload scripts to Pastebin and download them in-game.
+```
+  LEFT        |        RIGHT
+  ############|############    branch 3
+              |
+  ############|############    branch 2
+              |
+  ############|############    branch 1
+              S
 
-#### Setup:
+  # = mined tunnel (2 blocks tall)
+  | = main tunnel
+  S = start position, facing north (up)
+```
 
-1. Get a Pastebin API key from https://pastebin.com/doc_api
+1. Mines forward along the main tunnel by `spacing` blocks
+2. Turns left, mines a branch, returns to the main tunnel
+3. Continues east, mines a right branch, returns
+4. If ore vein mining is on: scans each branch at two heights (y=0 and y=1), inspecting walls, floor, and ceiling for ore
+5. When ore is found, recursively mines the entire connected vein in all 6 directions
+6. Repeats for the configured number of branches
 
-2. Configure the upload script:
-   ```bash
-   export PASTEBIN_API_KEY="your_api_key_here"
-   ```
+## Updating
 
-3. Upload a script:
-   ```bash
-   ./upload-to-pastebin.sh branchMining.lua
-   ```
+To update to the latest version:
 
-4. In ComputerCraft, download with:
-   ```lua
-   pastebin get <paste-id> branchMining
-   ```
+```lua
+wget https://raw.githubusercontent.com/mingjing04/cc-tweaked-scripts/main/branchMining.lua branchMining.lua
+```
 
-### Method 3: GitHub + wget (Best for Version Control)
-
-Use GitHub as your source and wget in-game to pull updates.
-
-#### Setup:
-
-1. Push your code to GitHub:
-   ```bash
-   git add .
-   git commit -m "Initial commit"
-   git remote add origin https://github.com/yourusername/cc-tweaked-scripts.git
-   git push -u origin main
-   ```
-
-2. In ComputerCraft, download with:
-   ```lua
-   wget https://raw.githubusercontent.com/mingjing04/cc-tweaked-scripts/main/branchMining.lua branchMining.lua
-   ```
-
-3. Create an update script in-game:
-   ```lua
-   -- update.lua
-   local scripts = {
-     "branchMining.lua"
-   }
-
-   local baseUrl = "https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/"
-
-   for _, script in ipairs(scripts) do
-     print("Downloading " .. script .. "...")
-     shell.run("wget", baseUrl .. script, script)
-   end
-
-   print("All scripts updated!")
-   ```
-
-## Development Workflow
-
-1. **Edit** your Lua files in your favorite editor
-2. **Test** in ComputerCraft (auto-synced with Method 1)
-3. **Commit** to git when working
-4. **Push** to GitHub for backup and sharing
-
-## Useful ComputerCraft Commands
-
-- `edit <filename>` - Edit a file in-game
-- `rm <filename>` - Delete a file
-- `ls` - List files
-- `reboot` - Restart the computer (reloads scripts)
-- `pastebin get <id> <name>` - Download from Pastebin
-- `wget <url> <name>` - Download from URL
-
-## Testing
-
-Always test your scripts in a creative world first before deploying to survival!
+Select `y` when prompted to overwrite the existing file.
 
 ## License
 

@@ -625,6 +625,19 @@ local function test_get_fuel_needed()
 
     assert_equal(74, calc_fuel_needed(2, 2, 2), "Fuel needed: length=2, branches=2, spacing=2 = 74")
     assert_equal(2570, calc_fuel_needed(30, 20, 3), "Fuel needed: length=30, branches=20, spacing=3 = 2570")
+
+    -- With vein_mine: adds 4 per position (up+down per branch × 2)
+    -- length=2, branches=2, spacing=2: moves = 2*(2+8+4) + 54 = 82
+    local function calc_fuel_needed_vein(branch_length, num_branches, spacing)
+        local moves_per_position = spacing + (branch_length * 4) + 4
+        local total_moves = num_branches * moves_per_position
+        local final_distance = num_branches * spacing
+        local return_trip = final_distance + 50
+        return total_moves + return_trip
+    end
+
+    assert_equal(82, calc_fuel_needed_vein(2, 2, 2), "Fuel needed (vein): length=2, branches=2, spacing=2 = 82")
+    assert_equal(2650, calc_fuel_needed_vein(30, 20, 3), "Fuel needed (vein): length=30, branches=20, spacing=3 = 2650")
 end
 
 -- ============================================================================

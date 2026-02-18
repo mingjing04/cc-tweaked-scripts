@@ -192,6 +192,65 @@ wget https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/bran
 
 ---
 
+## Program Architecture (`branchMining.lua`)
+
+### Global State
+- `pos` — `{x, y, z, facing}` tracks turtle position (facing: 0=N, 1=E, 2=S, 3=W)
+- `config` — user-configurable settings (branch_length, num_branches, spacing, pave, vein_mine)
+- `stats` — runtime counters (blocks_mined, branches_completed, fuel_used, ores_mined, veins_found)
+
+### Function Call Graph
+```
+main() → getConfiguration() → executeMining()
+  executeMining():
+    for each branch position:
+      mineForward() × spacing       -- advance main tunnel
+      turnLeft()
+      mineBranch(length)             -- LEFT branch (mine + scan if vein_mine)
+      mineBranch(length)             -- RIGHT branch (already facing east)
+      turnRight()                    -- face NORTH again
+
+  mineBranch(length):
+    PASS 1 (outbound, y=0):
+      mineForward()                  -- dig 2-high, move forward, paveDown
+      if vein_mine: scan walls (turnL/R + checkAndMineOre) + floor (checkAndMineOreDown)
+    digUp() at endpoint
+    if vein_mine:
+      up() → turn 180°
+      PASS 2 (return, y=1): scan walls + ceiling, safeForward back
+      down()
+    else:
+      turn 180° → walk back at y=0
+
+  checkAndMineOre() → mineVein(oreName, visited)  -- recursive 6-direction
+  mineVein(): check 4 horizontal + up + down, recurse into matching ore
+```
+
+### Movement Model
+- Every `forward/back/up/down` call checks fuel via `checkFuel()` first
+- Position updated after each successful move
+- `safeForward()` — dig if blocked, then move
+- `safeBack()` — try `back()`, fall back to turn-around + safeForward
+
+### Mining Flow (per branch position)
+1. Main tunnel: `mineForward()` × spacing (heading NORTH)
+2. `turnLeft()` → face WEST
+3. `mineBranch(L)`: mine+scan outbound, return via upper level → exits facing EAST
+4. `mineBranch(L)`: mine+scan outbound, return via upper level → exits facing WEST
+5. `turnRight()` → face NORTH
+
+### Scan Coverage (vein_mine=true)
+- **Lower pass (outbound, y=0):** left wall, right wall, floor — at positions 1..L
+- **Upper pass (return, y=1):** left wall, right wall, ceiling — at positions L..1
+- Combined: all 5 exposed faces around the 2-high tunnel at every position
+
+### Fuel Formula
+- Per branch: `2L + 2` (L out + L back + up + down) when vein_mine=true, `2L` when false
+- Per position: `spacing + branch_length×4 [+ 4 if vein_mine]`
+- Total: `num_branches × moves_per_position + return_trip`
+
+---
+
 ## Implementation Roadmap
 
 ### Phase 1: Core Movement & Mining (MVP) - CURRENT

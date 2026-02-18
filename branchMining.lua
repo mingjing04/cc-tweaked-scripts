@@ -56,7 +56,7 @@ local function getFuelNeeded()
     -- Total: num_branches * moves_per_position + return trip
     local moves_per_position = config.spacing + (config.branch_length * 4)  -- 2 branches, each goes out and back
     if config.vein_mine then
-        moves_per_position = moves_per_position + (config.branch_length * 4 + 4)  -- 2 branches × (2L+2) scan traversals
+        moves_per_position = moves_per_position + 4  -- 2 branches × (up + down) for upper-level return scan
     end
     local total_moves = config.num_branches * moves_per_position
     -- Return trip: turtle will be at z = -(num_branches * spacing) at the end
@@ -357,6 +357,14 @@ local function safeForward()
     return true
 end
 
+local function safeBack()
+    if back() then return true end
+    turnRight(); turnRight()
+    safeForward()
+    turnRight(); turnRight()
+    return true
+end
+
 local function mineVein(oreName, visited)
     visited[getPositionKey(pos.x, pos.y, pos.z)] = true
 
@@ -370,9 +378,7 @@ local function mineVein(oreName, visited)
                 stats.ores_mined = stats.ores_mined + 1
                 if forward() then
                     mineVein(oreName, visited)
-                    turnRight(); turnRight()
-                    safeForward()
-                    turnRight(); turnRight()
+                    safeBack()
                 end
             end
         end
@@ -415,9 +421,7 @@ local function checkAndMineOre()
         if forward() then
             local visited = {}
             mineVein(data.name, visited)
-            turnRight(); turnRight()
-            safeForward()
-            turnRight(); turnRight()
+            safeBack()
         end
     end
 end
@@ -448,41 +452,6 @@ local function checkAndMineOreDown()
             up()
         end
     end
-end
-
-local function scanBranch(length)
-    if not config.vein_mine then return end
-
-    -- Precondition: at junction, facing TOWARD junction (away from branch)
-    -- Turn 180 to face into branch
-    turnRight(); turnRight()
-
-    -- LOWER SCAN (y=0): walk into branch, scan walls and floor
-    for i = 1, length do
-        safeForward()
-        turnLeft(); checkAndMineOre(); turnRight()   -- left wall
-        turnRight(); checkAndMineOre(); turnLeft()    -- right wall
-        checkAndMineOreDown()                          -- floor
-    end
-
-    -- At branch endpoint, go up one level
-    up()
-
-    -- Turn 180 to face back toward junction
-    turnRight(); turnRight()
-
-    -- UPPER SCAN (y=1): scan walls and ceiling, then walk back
-    for i = 1, length do
-        turnLeft(); checkAndMineOre(); turnRight()    -- left wall
-        turnRight(); checkAndMineOre(); turnLeft()     -- right wall
-        checkAndMineOreUp()                             -- ceiling
-        safeForward()
-    end
-
-    -- At junction y=1, go back down
-    down()
-
-    -- Net facing: +180 +180 = +360 = original facing restored
 end
 
 -- ============================================================================
@@ -522,37 +491,63 @@ local function mineForward()
 end
 
 local function mineBranch(length)
-    -- Mine a 2-high branch tunnel
+    -- Mine a 2-high branch tunnel, optionally scanning for ore veins
+    -- When vein_mine=true: merged mine+scan in one round trip (2L+2 fuel)
+    -- When vein_mine=false: mine-only round trip (2L fuel)
     local actualLength = length
     for i = 1, length do
         if not mineForward() then
             print("  Branch mining stopped at block " .. i)
-            -- Still need to return, so update actual length
             actualLength = i - 1
             break
         end
+
+        -- LOWER SCAN (outbound, y=0): scan walls + floor after each move
+        if config.vein_mine then
+            turnLeft(); checkAndMineOre(); turnRight()   -- left wall
+            turnRight(); checkAndMineOre(); turnLeft()   -- right wall
+            checkAndMineOreDown()                         -- floor
+        end
     end
 
-    -- Clear ceiling at branch endpoint (mineForward only digs up BEFORE moving)
+    -- Clear ceiling at branch endpoint
     digUp()
 
-    -- Turn around to face back toward main tunnel (180°)
-    turnRight()
-    turnRight()
+    if config.vein_mine then
+        -- Go up for upper-level return scan
+        up()
 
-    -- Return to main tunnel
-    for i = 1, actualLength do
-        if not forward() then
-            -- Try to dig through if blocked
-            digForward()
+        -- Turn around to face back toward main tunnel (180°)
+        turnRight()
+        turnRight()
+
+        -- UPPER SCAN (return, y=1): scan walls + ceiling, then move
+        for i = 1, actualLength do
+            turnLeft(); checkAndMineOre(); turnRight()    -- left wall
+            turnRight(); checkAndMineOre(); turnLeft()    -- right wall
+            checkAndMineOreUp()                            -- ceiling
+            safeForward()
+        end
+
+        -- Back at junction y=1, go back down
+        down()
+    else
+        -- No scanning: simple turn-around and walk back at y=0
+        turnRight()
+        turnRight()
+
+        for i = 1, actualLength do
             if not forward() then
-                print("ERROR: Cannot return from branch!")
-                return false
+                digForward()
+                if not forward() then
+                    print("ERROR: Cannot return from branch!")
+                    return false
+                end
             end
         end
     end
 
-    -- Turtle now exits facing TOWARD the junction (opposite of branch direction)
+    -- Turtle exits facing TOWARD the junction (opposite of branch direction)
     -- The caller handles turning to the next direction
     return true
 end
@@ -569,7 +564,7 @@ local function printFuelStatus(branch_num)
     local remaining_branches = config.num_branches - branch_num
     local moves_per_branch = config.spacing + (config.branch_length * 4)
     if config.vein_mine then
-        moves_per_branch = moves_per_branch + (config.branch_length * 4 + 4)
+        moves_per_branch = moves_per_branch + 4  -- up + down per branch × 2
     end
     local fuel_to_finish = remaining_branches * moves_per_branch
     local efficiency = "N/A"
@@ -634,7 +629,6 @@ local function executeMining()
             return false
         end
         -- After mineBranch, facing EAST (walked back from WEST branch)
-        scanBranch(config.branch_length)
         -- EAST is already the right branch direction — go directly
         tryAutoRefuelCoal()
 
@@ -646,8 +640,6 @@ local function executeMining()
             return false
         end
         -- After mineBranch, facing WEST (walked back from EAST branch)
-        scanBranch(config.branch_length)
-        -- Turn right to face NORTH
         tryAutoRefuelCoal()
         turnRight()  -- WEST → NORTH
 

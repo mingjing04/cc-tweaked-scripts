@@ -14,13 +14,16 @@ local config = {
     spacing = 3,
     fuel_reserve = 100,  -- Minimum fuel to keep for emergencies
     auto_refuel_coal = true,  -- Auto-consume coal/charcoal for fuel
-    pave = true  -- Fill empty ground below turtle while mining
+    pave = true,  -- Fill empty ground below turtle while mining
+    vein_mine = true  -- Scan branches for ore veins after mining
 }
 
 local stats = {
     blocks_mined = 0,
     branches_completed = 0,
-    fuel_used = 0
+    fuel_used = 0,
+    ores_mined = 0,
+    veins_found = 0
 }
 
 local FUEL_ITEMS = {
@@ -52,6 +55,9 @@ local function getFuelNeeded()
     -- Each position: spacing + (branch_length * 2) for LEFT + (branch_length * 2) for RIGHT
     -- Total: num_branches * moves_per_position + return trip
     local moves_per_position = config.spacing + (config.branch_length * 4)  -- 2 branches, each goes out and back
+    if config.vein_mine then
+        moves_per_position = moves_per_position + (config.branch_length * 4 + 4)  -- 2 branches × (2L+2) scan traversals
+    end
     local total_moves = config.num_branches * moves_per_position
     -- Return trip: turtle will be at z = -(num_branches * spacing) at the end
     local final_distance = config.num_branches * config.spacing
@@ -325,6 +331,161 @@ local function paveDown()
 end
 
 -- ============================================================================
+-- ORE VEIN MINING
+-- ============================================================================
+
+local function isOre(name)
+    return name:find("_ore$") ~= nil
+end
+
+local function getPositionKey(x, y, z)
+    return x .. "," .. y .. "," .. z
+end
+
+local function getForwardPosition()
+    if pos.facing == 0 then return pos.x, pos.y, pos.z - 1
+    elseif pos.facing == 1 then return pos.x + 1, pos.y, pos.z
+    elseif pos.facing == 2 then return pos.x, pos.y, pos.z + 1
+    else return pos.x - 1, pos.y, pos.z end
+end
+
+local function safeForward()
+    if not forward() then
+        digForward()
+        return forward()
+    end
+    return true
+end
+
+local function mineVein(oreName, visited)
+    visited[getPositionKey(pos.x, pos.y, pos.z)] = true
+
+    -- Check 4 horizontal directions
+    for i = 1, 4 do
+        local hasBlock, data = turtle.inspect()
+        if hasBlock and data.name == oreName then
+            local fx, fy, fz = getForwardPosition()
+            if not visited[getPositionKey(fx, fy, fz)] then
+                digForward()
+                stats.ores_mined = stats.ores_mined + 1
+                if forward() then
+                    mineVein(oreName, visited)
+                    turnRight(); turnRight()
+                    safeForward()
+                    turnRight(); turnRight()
+                end
+            end
+        end
+        turnRight()
+    end
+
+    -- Check up
+    local hasUp, dataUp = turtle.inspectUp()
+    if hasUp and dataUp.name == oreName then
+        if not visited[getPositionKey(pos.x, pos.y + 1, pos.z)] then
+            digUp()
+            stats.ores_mined = stats.ores_mined + 1
+            if up() then
+                mineVein(oreName, visited)
+                down()
+            end
+        end
+    end
+
+    -- Check down
+    local hasDown, dataDown = turtle.inspectDown()
+    if hasDown and dataDown.name == oreName then
+        if not visited[getPositionKey(pos.x, pos.y - 1, pos.z)] then
+            digDown()
+            stats.ores_mined = stats.ores_mined + 1
+            if down() then
+                mineVein(oreName, visited)
+                up()
+            end
+        end
+    end
+end
+
+local function checkAndMineOre()
+    local hasBlock, data = turtle.inspect()
+    if hasBlock and isOre(data.name) then
+        stats.veins_found = stats.veins_found + 1
+        stats.ores_mined = stats.ores_mined + 1
+        digForward()
+        if forward() then
+            local visited = {}
+            mineVein(data.name, visited)
+            turnRight(); turnRight()
+            safeForward()
+            turnRight(); turnRight()
+        end
+    end
+end
+
+local function checkAndMineOreUp()
+    local hasBlock, data = turtle.inspectUp()
+    if hasBlock and isOre(data.name) then
+        stats.veins_found = stats.veins_found + 1
+        stats.ores_mined = stats.ores_mined + 1
+        digUp()
+        if up() then
+            local visited = {}
+            mineVein(data.name, visited)
+            down()
+        end
+    end
+end
+
+local function checkAndMineOreDown()
+    local hasBlock, data = turtle.inspectDown()
+    if hasBlock and isOre(data.name) then
+        stats.veins_found = stats.veins_found + 1
+        stats.ores_mined = stats.ores_mined + 1
+        digDown()
+        if down() then
+            local visited = {}
+            mineVein(data.name, visited)
+            up()
+        end
+    end
+end
+
+local function scanBranch(length)
+    if not config.vein_mine then return end
+
+    -- Precondition: at junction, facing TOWARD junction (away from branch)
+    -- Turn 180 to face into branch
+    turnRight(); turnRight()
+
+    -- LOWER SCAN (y=0): walk into branch, scan walls and floor
+    for i = 1, length do
+        safeForward()
+        turnLeft(); checkAndMineOre(); turnRight()   -- left wall
+        turnRight(); checkAndMineOre(); turnLeft()    -- right wall
+        checkAndMineOreDown()                          -- floor
+    end
+
+    -- At branch endpoint, go up one level
+    up()
+
+    -- Turn 180 to face back toward junction
+    turnRight(); turnRight()
+
+    -- UPPER SCAN (y=1): scan walls and ceiling, then walk back
+    for i = 1, length do
+        turnLeft(); checkAndMineOre(); turnRight()    -- left wall
+        turnRight(); checkAndMineOre(); turnLeft()     -- right wall
+        checkAndMineOreUp()                             -- ceiling
+        safeForward()
+    end
+
+    -- At junction y=1, go back down
+    down()
+
+    -- Net facing: +180 +180 = +360 = original facing restored
+end
+
+-- ============================================================================
 -- MINING FUNCTIONS
 -- ============================================================================
 
@@ -407,6 +568,9 @@ local function printFuelStatus(branch_num)
     local returnCost = fuelToReturn()
     local remaining_branches = config.num_branches - branch_num
     local moves_per_branch = config.spacing + (config.branch_length * 4)
+    if config.vein_mine then
+        moves_per_branch = moves_per_branch + (config.branch_length * 4 + 4)
+    end
     local fuel_to_finish = remaining_branches * moves_per_branch
     local efficiency = "N/A"
     if stats.fuel_used > 0 then
@@ -470,6 +634,7 @@ local function executeMining()
             return false
         end
         -- After mineBranch, facing EAST (walked back from WEST branch)
+        scanBranch(config.branch_length)
         -- EAST is already the right branch direction — go directly
         tryAutoRefuelCoal()
 
@@ -481,6 +646,7 @@ local function executeMining()
             return false
         end
         -- After mineBranch, facing WEST (walked back from EAST branch)
+        scanBranch(config.branch_length)
         -- Turn right to face NORTH
         tryAutoRefuelCoal()
         turnRight()  -- WEST → NORTH
@@ -507,6 +673,10 @@ local function executeMining()
         if stats.fuel_used > 0 then
             print(string.format("Mining efficiency: %.1f blocks/fuel", stats.blocks_mined / stats.fuel_used))
         end
+    end
+    if config.vein_mine then
+        print(string.format("Veins found: %d", stats.veins_found))
+        print(string.format("Ore blocks mined: %d", stats.ores_mined))
     end
     print(string.format("Final position: x=%d, y=%d, z=%d", pos.x, pos.y, pos.z))
     return true
@@ -537,12 +707,17 @@ local function getConfiguration()
     local paveInput = read()
     config.pave = (paveInput ~= "n" and paveInput ~= "N")
 
+    write("Enable ore vein mining? (y/n, default: y): ")
+    local veinInput = read()
+    config.vein_mine = (veinInput ~= "n" and veinInput ~= "N")
+
     print("")
     print("Configuration:")
     print("  Branch length: " .. config.branch_length)
     print("  Number of branches: " .. config.num_branches)
     print("  Spacing: " .. config.spacing)
     print("  Floor paving: " .. (config.pave and "yes" or "no"))
+    print("  Ore vein mining: " .. (config.vein_mine and "yes" or "no"))
     print("")
 
     write("Start mining? (y/n): ")

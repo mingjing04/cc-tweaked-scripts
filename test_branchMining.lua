@@ -17,6 +17,7 @@ local mock = {
     move_count = 0,
     pave_count = 0,
     detect_down_result = false,  -- configurable: false = empty ground
+    world = {},  -- "x,y,z" -> { name = "minecraft:iron_ore" }
 }
 
 -- Fuel values per item for mock refueling
@@ -28,6 +29,25 @@ local MOCK_FUEL_VALUES = {
 
 -- Direction names for logging
 local FACING_NAMES = {"NORTH(-z)", "EAST(+x)", "SOUTH(+z)", "WEST(-x)"}
+
+local function worldKey(x, y, z)
+    return x .. "," .. y .. "," .. z
+end
+
+local function getBlockInFront()
+    if mock.facing == 0 then return worldKey(mock.x, mock.y, mock.z - 1)
+    elseif mock.facing == 1 then return worldKey(mock.x + 1, mock.y, mock.z)
+    elseif mock.facing == 2 then return worldKey(mock.x, mock.y, mock.z + 1)
+    else return worldKey(mock.x - 1, mock.y, mock.z) end
+end
+
+local function getBlockAbove()
+    return worldKey(mock.x, mock.y + 1, mock.z)
+end
+
+local function getBlockBelow()
+    return worldKey(mock.x, mock.y - 1, mock.z)
+end
 
 local function log(action, detail)
     local entry = string.format("[%3d] %-12s | pos=(%3d,%3d,%3d) facing=%-10s | %s",
@@ -103,17 +123,51 @@ turtle = {
         return true
     end,
 
-    dig = function() log("dig", "OK"); return true end,
-    digUp = function() log("digUp", "OK"); return true end,
-    digDown = function() log("digDown", "OK"); return true end,
+    dig = function()
+        local key = getBlockInFront()
+        if mock.world[key] then mock.world[key] = nil end
+        log("dig", "OK")
+        return true
+    end,
+    digUp = function()
+        local key = getBlockAbove()
+        if mock.world[key] then mock.world[key] = nil end
+        log("digUp", "OK")
+        return true
+    end,
+    digDown = function()
+        local key = getBlockBelow()
+        if mock.world[key] then mock.world[key] = nil end
+        log("digDown", "OK")
+        return true
+    end,
 
-    detect = function() return false end,
-    detectUp = function() return false end,
-    detectDown = function() return mock.detect_down_result end,
+    detect = function()
+        return mock.world[getBlockInFront()] ~= nil
+    end,
+    detectUp = function()
+        return mock.world[getBlockAbove()] ~= nil
+    end,
+    detectDown = function()
+        if mock.world[getBlockBelow()] ~= nil then return true end
+        return mock.detect_down_result
+    end,
 
-    inspect = function() return false, "No block" end,
-    inspectUp = function() return false, "No block" end,
-    inspectDown = function() return false, "No block" end,
+    inspect = function()
+        local block = mock.world[getBlockInFront()]
+        if block then return true, { name = block.name } end
+        return false, "No block"
+    end,
+    inspectUp = function()
+        local block = mock.world[getBlockAbove()]
+        if block then return true, { name = block.name } end
+        return false, "No block"
+    end,
+    inspectDown = function()
+        local block = mock.world[getBlockBelow()]
+        if block then return true, { name = block.name } end
+        return false, "No block"
+    end,
 
     place = function() return true end,
     placeUp = function() return true end,
@@ -210,6 +264,7 @@ local function reset_mock()
     mock.move_count = 0
     mock.pave_count = 0
     mock.detect_down_result = false
+    mock.world = {}
 end
 
 local function print_logs()
@@ -423,7 +478,7 @@ local function test_full_program()
 
     -- Override read() to return specific values
     local input_count = 0
-    local inputs = {"2", "2", "2", "y", "y"}  -- length=2, branches=2, spacing=2, pave=y, confirm=y
+    local inputs = {"2", "2", "2", "y", "y", "y"}  -- length=2, branches=2, spacing=2, pave=y, vein=y, confirm=y
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -506,7 +561,7 @@ local function test_auto_refuel_coal()
 
     -- Override read for config: small mining run
     local input_count = 0
-    local inputs = {"1", "1", "1", "y", "y"}  -- length=1, branches=1, spacing=1, pave=y, confirm=y
+    local inputs = {"1", "1", "1", "y", "n", "y"}  -- length=1, branches=1, spacing=1, pave=y, vein=n, confirm=y
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -588,7 +643,7 @@ local function test_pave_system()
     mock.inventory[1] = { name = "minecraft:cobblestone", count = 64 }
 
     local input_count = 0
-    local inputs = {"2", "1", "1", "y", "y"}  -- length=2, branches=1, spacing=1, pave=y, confirm=y
+    local inputs = {"2", "1", "1", "y", "n", "y"}  -- length=2, branches=1, spacing=1, pave=y, vein=n, confirm=y
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -607,7 +662,7 @@ local function test_pave_system()
     mock.inventory[1] = { name = "minecraft:cobblestone", count = 64 }
 
     input_count = 0
-    inputs = {"2", "1", "1", "y", "y"}
+    inputs = {"2", "1", "1", "y", "n", "y"}
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -624,7 +679,7 @@ local function test_pave_system()
     mock.inventory[1] = { name = "minecraft:cobblestone", count = 64 }
 
     input_count = 0
-    inputs = {"2", "1", "1", "n", "y"}  -- pave=n
+    inputs = {"2", "1", "1", "n", "n", "y"}  -- pave=n, vein=n
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -641,7 +696,7 @@ local function test_pave_system()
     -- No cobblestone/dirt/etc in inventory
 
     input_count = 0
-    inputs = {"2", "1", "1", "y", "y"}  -- pave=y
+    inputs = {"2", "1", "1", "y", "n", "y"}  -- pave=y, vein=n
     read = function()
         input_count = input_count + 1
         return inputs[input_count] or ""
@@ -650,6 +705,133 @@ local function test_pave_system()
     dofile("branchMining.lua")
 
     assert_equal(0, mock.pave_count, "0 blocks paved (no pave materials)")
+end
+
+-- ============================================================================
+-- ORE VEIN MINING TESTS
+-- ============================================================================
+
+local function test_isOre_pattern()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: isOre pattern matching")
+    print(string.rep("=", 60))
+
+    -- isOre is local in branchMining.lua, so test the pattern directly
+    local function isOre(name)
+        return name:find("_ore$") ~= nil
+    end
+
+    assert_true(isOre("minecraft:iron_ore"), "iron_ore is ore")
+    assert_true(isOre("minecraft:diamond_ore"), "diamond_ore is ore")
+    assert_true(isOre("minecraft:deepslate_gold_ore"), "deepslate_gold_ore is ore")
+    assert_true(isOre("minecraft:copper_ore"), "copper_ore is ore")
+    assert_true(isOre("minecraft:redstone_ore"), "redstone_ore is ore")
+
+    assert_true(not isOre("minecraft:stone"), "stone is not ore")
+    assert_true(not isOre("minecraft:cobblestone"), "cobblestone is not ore")
+    assert_true(not isOre("minecraft:coal"), "coal (item) is not ore")
+    assert_true(not isOre("minecraft:ore_sensor"), "ore_sensor is not ore (ore not at end)")
+end
+
+local function test_no_ores()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Full program with vein mining, no ores in world")
+    print(string.rep("=", 60))
+    reset_mock()
+
+    local input_count = 0
+    local inputs = {"2", "1", "2", "y", "y", "y"}  -- length=2, branches=1, spacing=2, pave=y, vein=y, confirm=y
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    -- With vein scanning but no ores, turtle should still end at correct position
+    -- spacing=2 → z=-2, facing north, y=0
+    assert_position(0, 0, -2, 0, "Position correct after scan with no ores")
+end
+
+local function test_single_ore_block()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Single ore block in branch wall")
+    print(string.rep("=", 60))
+    reset_mock()
+
+    -- Config: length=2, branches=1, spacing=2
+    -- Left branch goes WEST from junction at z=-2
+    -- Branch positions: (-1,0,-2) and (-2,0,-2)
+    -- Place ore in south wall of position 1 in left branch
+    -- When at (-1,0,-2) facing west, south wall = inspect after turnRight twice from west = south
+    -- South of (-1,0,-2) is (-1,0,-1)
+    mock.world[worldKey(-1, 0, -1)] = { name = "minecraft:iron_ore" }
+
+    local input_count = 0
+    local inputs = {"2", "1", "2", "y", "y", "y"}  -- length=2, branches=1, spacing=2, pave=y, vein=y, confirm=y
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    -- Ore should have been mined (removed from world)
+    assert_true(mock.world[worldKey(-1, 0, -1)] == nil, "Iron ore was mined from world")
+    assert_position(0, 0, -2, 0, "Position correct after mining single ore")
+end
+
+local function test_connected_vein()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Connected 3-block L-shaped vein")
+    print(string.rep("=", 60))
+    reset_mock()
+
+    -- Config: length=2, branches=1, spacing=2
+    -- Place L-shaped diamond vein north of left branch position 1
+    -- At (-1,0,-2), north wall is (-1,0,-3)
+    -- Then vein continues: (-1,0,-4) and (-2,0,-4)
+    mock.world[worldKey(-1, 0, -3)] = { name = "minecraft:diamond_ore" }
+    mock.world[worldKey(-1, 0, -4)] = { name = "minecraft:diamond_ore" }
+    mock.world[worldKey(-2, 0, -4)] = { name = "minecraft:diamond_ore" }
+
+    local input_count = 0
+    local inputs = {"2", "1", "2", "y", "y", "y"}
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    -- All 3 ore blocks should be mined
+    assert_true(mock.world[worldKey(-1, 0, -3)] == nil, "Diamond ore 1 mined")
+    assert_true(mock.world[worldKey(-1, 0, -4)] == nil, "Diamond ore 2 mined")
+    assert_true(mock.world[worldKey(-2, 0, -4)] == nil, "Diamond ore 3 mined")
+    assert_position(0, 0, -2, 0, "Position correct after mining L-shaped vein")
+end
+
+local function test_vein_mine_disabled()
+    print("\n" .. string.rep("=", 60))
+    print("TEST: Vein mining disabled - ore left in wall")
+    print(string.rep("=", 60))
+    reset_mock()
+
+    -- Place ore that should NOT be mined when vein_mine=n
+    mock.world[worldKey(-1, 0, -1)] = { name = "minecraft:iron_ore" }
+
+    local input_count = 0
+    local inputs = {"2", "1", "2", "y", "n", "y"}  -- vein=n
+    read = function()
+        input_count = input_count + 1
+        return inputs[input_count] or ""
+    end
+
+    dofile("branchMining.lua")
+
+    -- Ore should still be in the world (not scanned)
+    assert_true(mock.world[worldKey(-1, 0, -1)] ~= nil, "Iron ore NOT mined when vein mining disabled")
+    assert_position(0, 0, -2, 0, "Position correct with vein mining disabled")
 end
 
 -- ============================================================================
@@ -680,5 +862,14 @@ print("\n" .. string.rep("=", 60))
 print("Running pave system tests...")
 print(string.rep("=", 60))
 test_pave_system()
+
+print("\n" .. string.rep("=", 60))
+print("Running ore vein mining tests...")
+print(string.rep("=", 60))
+test_isOre_pattern()
+test_no_ores()
+test_single_ore_block()
+test_connected_vein()
+test_vein_mine_disabled()
 
 print("\n=== TESTS COMPLETE ===")

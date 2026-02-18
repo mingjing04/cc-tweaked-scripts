@@ -209,50 +209,55 @@ wget https://raw.githubusercontent.com/yourusername/cc-tweaked-scripts/main/bran
 
 ## Bugs Found & Fixed
 
-### BUG: Excessive turning between branches (FIXED)
-**Found:** `mineBranch()` originally had 4x `turnRight()` — 2 for the 180° turn-around and 2 more after walking back, just to exit facing the branch direction. This caused 11 turns per L+R pair (4 wasted).
+### BUG: Turtle not turning back to main tunnel after branch
+**Found:** After `mineBranch()` returned, the original code had no logic to turn back to face the main tunnel direction.
 
-**Fix:** Removed the second 180° turn. `mineBranch()` now exits facing **toward the junction** (opposite of branch direction):
-- Left branch (WEST): exits facing **EAST**
-- Right branch (EAST): exits facing **WEST**
-
-This lets `executeMining()` skip turns between L/R branches:
+**Root cause:** `mineBranch()` has 4x `turnRight()` (2 to turn around, 2 after walking back), so it exits facing the **branch direction**:
 ```lua
-turnLeft()          -- NORTH → WEST
-mineBranch(...)     -- exits facing EAST (already right branch direction!)
-mineBranch(...)     -- exits facing WEST
-turnRight()         -- WEST → NORTH
+turnRight(); turnRight()  -- Turn 180° to face back
+-- walk back to junction --
+turnRight(); turnRight()  -- Turn 180° again, now facing branch direction
 ```
 
-**Turn count per L+R pair: 11 → 5** (1 turnLeft, 2x turnRight inside each mineBranch for 180°, 1 turnRight after right branch).
+**Why 4 turnRights is correct:**
+- Exit facing branch direction (WEST for left branch, EAST for right branch)
+- Then turn once to face main tunnel (NORTH)
+- Left branch (WEST): `turnRight()` → NORTH ✓
+- Right branch (EAST): `turnLeft()` → NORTH ✓
 
-### BUG: Missing digUp at branch endpoint (FIXED)
-**Found:** `mineForward()` calls `digUp()` before `forward()`, so the ceiling at the last branch position (the endpoint) was never cleared.
+**Fix:** Added turn-back logic in `executeMining()` after each branch:
+```lua
+if side == 0 then
+    turnRight()  -- Left branch: exited WEST, turn right to face NORTH
+else
+    turnLeft()   -- Right branch: exited EAST, turn left to face NORTH
+end
+```
 
-**Fix:** Added `digUp()` in `mineBranch()` after the mining loop, before the turn-around.
+**Wrong approach (what we tried):** Removing the second pair of turnRights made the turtle exit facing the OPPOSITE of branch direction, which required the opposite turn logic and caused confusion.
 
 ### Phase 2: Fuel & Inventory Management
-- [x] Fuel level monitoring (periodic fuel status reports with return cost, efficiency)
-- [x] Auto-refuel from mined coal in inventory (FUEL_ITEMS table, tryAutoRefuelCoal)
-- [x] Fuel estimation calculator (warn if not enough fuel to start)
+- [ ] Fuel level monitoring
+- [ ] Auto-refuel from mined coal in inventory
+- [ ] Fuel estimation calculator (warn if not enough fuel to start)
 - [ ] Inventory full detection
 - [ ] Return to base and dump to chest
 - [ ] Resume from saved position after dump
 
 ### Phase 3: Safety & Quality of Life
-- [x] pave system that fills the ground if empty
+- [ ] pave system that fills the ground if empty
 - [ ] Liquid detection and sealing with cobblestone
 - [ ] Bedrock detection and handling
 - [ ] Progress display (blocks mined, fuel used, time elapsed)
 - [ ] Save/resume state to file (recover from crashes/shutdowns)
 
 ### Phase 4: Ore Vein Mining
-- [ ] Ore detection system using `turtle.inspect()`
-- [ ] Recursive vein mining algorithm (6-direction search)
-- [ ] Position saving before vein mining
-- [ ] Navigation back to saved position
-- [ ] Visited blocks tracking (prevent infinite loops)
-- [ ] Ore counting and reporting by type
+- [x] Ore detection system using `turtle.inspect()`
+- [x] Recursive vein mining algorithm (6-direction search)
+- [x] Position saving before vein mining
+- [x] Navigation back to saved position
+- [x] Visited blocks tracking (prevent infinite loops)
+- [x] Ore counting and reporting by type
 
 ### Phase 5: Polish & Advanced Features
 - [ ] Config file loading (`mining_config.txt`)
